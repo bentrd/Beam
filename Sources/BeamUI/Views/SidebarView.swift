@@ -56,20 +56,33 @@ struct SidebarView: View {
 }
 
 /// The sentence, tail-truncated, with the whole of it in the help tag. Not editable.
+/// Items that stay unchecked after retries earn the same warning glyph a long-failing source gets.
 private struct PinRow: View {
     let model: AppModel
     let summary: PinSummary
 
     var body: some View {
-        Text(summary.pin.sentence)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .help(summary.pin.sentence)
-            .badge(summary.newFound)
-            .contextMenu { Button("Remove Pin") { model.remove(.pin(summary.id)) } }
-            .accessibilityLabel(summary.newFound > 0 ? "\(summary.pin.sentence), \(summary.newFound) new" : summary.pin.sentence)
-            .accessibilityAction(named: "Move Up") { model.movePin(summary.id, by: -1) }
-            .accessibilityAction(named: "Move Down") { model.movePin(summary.id, by: 1) }
+        HStack(spacing: 6) {
+            Text(summary.pin.sentence).lineLimit(1).truncationMode(.tail)
+            if summary.hasUnchecked {
+                Spacer(minLength: 0)
+                WarningGlyph(help: ShellCopy.notChecked)
+            }
+        }
+        .help(summary.pin.sentence)
+        .badge(summary.newFound)
+        .contextMenu { Button("Remove Pin") { model.remove(.pin(summary.id)) } }
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityAction(named: "Move Up") { model.movePin(summary.id, by: -1) }
+        .accessibilityAction(named: "Move Down") { model.movePin(summary.id, by: 1) }
+    }
+
+    /// "{sentence}, 3 new", then "not checked" where it applies.
+    private var accessibilityLabel: String {
+        var parts = [summary.pin.sentence]
+        if summary.newFound > 0 { parts.append("\(summary.newFound) new") }
+        if summary.hasUnchecked { parts.append(ShellCopy.notChecked.lowercased()) }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -83,11 +96,7 @@ private struct SourceRow: View {
             Text(summary.source.title).lineLimit(1).truncationMode(.tail)
             if summary.showsWarning {
                 Spacer(minLength: 0)
-                Image(systemName: "exclamationmark.triangle")
-                    .symbolRenderingMode(.monochrome)
-                    .foregroundStyle(.secondary)
-                    .help(ShellCopy.couldNotRefresh(summary.source.lastError ?? ""))
-                    .accessibilityHidden(true)
+                WarningGlyph(help: ShellCopy.couldNotRefresh(summary.source.lastError ?? ""))
             }
         }
         .badge(summary.unread)
@@ -104,6 +113,20 @@ private struct SourceRow: View {
     private var accessibilityLabel: String {
         guard let reason = summary.source.lastError else { return summary.source.title }
         return "\(summary.source.title), couldn't refresh, \(reason)"
+    }
+}
+
+/// The one warning the sidebar draws: monochrome, secondary, never for a transient failure.
+/// The reason is in the help tag and in the row's accessibility label, so the glyph itself is silent.
+private struct WarningGlyph: View {
+    let help: String
+
+    var body: some View {
+        Image(systemName: "exclamationmark.triangle")
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(.secondary)
+            .help(help)
+            .accessibilityHidden(true)
     }
 }
 

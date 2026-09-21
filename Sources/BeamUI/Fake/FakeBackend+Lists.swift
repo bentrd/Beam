@@ -6,6 +6,8 @@ struct ListRun {
     var request: ListRequest
     let continuation: AsyncStream<ListSnapshot>.Continuation
     var task: Task<Void, Never>?
+    /// When this list was asked for: the first-fetch line waits a second before it appears.
+    let started = Date()
     /// How many of the newest items the run covers. "Check 53 older" widens it.
     var window: Int
     var isRunning = false
@@ -27,6 +29,8 @@ extension FakeBackend {
     private static let firstWindow = 150
     private static let ticks = 8
     private static let tick = Duration.milliseconds(190)
+    /// How long a first fetch may take before Beam says it is fetching.
+    private static let firstFetchNotice: TimeInterval = 1
 
     // MARK: BeamBackend
 
@@ -38,7 +42,17 @@ extension FakeBackend {
         if request.hidesRead { run.keptWhileHidingRead = Set(items.filter { !$0.read }.map(\.id)) }
         listRun = run
         startListRun()
+        // Nothing has arrived yet: come back in a second to say so, since no snapshot is due before then.
+        if !undelivered.isEmpty { sayFetchingAfterASecond(of: run) }
         return stream
+    }
+
+    private func sayFetchingAfterASecond(of run: ListRun) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.firstFetchNotice))
+            guard let self, self.listRun?.started == run.started else { return }
+            self.publishList()
+        }
     }
 
     public func checkOlder() {
@@ -248,7 +262,10 @@ extension FakeBackend {
 
     private func emptiness(for run: ListRun, sentence: String?) -> (String?, FootAction?) {
         if sources.isEmpty { return (FakeFeet.noSources, .addSource) }
-        if !undelivered.isEmpty { return (FakeFeet.gettingSources, nil) }
+        if !undelivered.isEmpty {
+            // Nothing is said about a fetch that answers within a second.
+            return (Date().timeIntervalSince(run.started) >= Self.firstFetchNotice ? FakeFeet.gettingSources : nil, nil)
+        }
         if run.isPinList { return (FakeFeet.nothingFound(in: items.count), nil) }
         guard let sentence else {
             // Every row hidden as read is not an empty source: only a source with nothing fetched says so.

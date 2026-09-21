@@ -74,7 +74,6 @@ struct DemoCommands: Commands {
             Button("Make Text Smaller") { model.textSize = ReaderTextSize.smaller(than: model.textSize) }
                 .keyboardShortcut("-", modifiers: .command)
             Button("Actual Size") { model.textSize = ReaderTextSize.standard }
-                .keyboardShortcut("0", modifiers: .command)
             Divider()
         }
     }

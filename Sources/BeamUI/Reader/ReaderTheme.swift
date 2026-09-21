@@ -20,6 +20,7 @@ enum ReaderTheme {
     }
 
     /// #9A6B00 on light paper (about 4.7:1), #FFE066 on dark paper.
+    /// The one colour Beam draws itself: the reader's bars and strip marks, and the list's row mark.
     static let hitInk = NSColor(name: nil) { appearance in
         isDark(appearance) ? NSColor(srgbRed: 1.0, green: 0.878, blue: 0.40, alpha: 1)
                            : NSColor(srgbRed: 0.604, green: 0.420, blue: 0.0, alpha: 1)

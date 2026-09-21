@@ -29,13 +29,17 @@ enum ShellCopy {
     static let keyUnreachable = "Can't reach TypeSafe. Check your connection."
 
     static func couldNotRefresh(_ reason: String) -> String { "Couldn't refresh: \(reason)" }
+    /// The help tag on a pin whose items are still unchecked after retries.
+    static let notChecked = "Not checked"
 
-    /// The title of a foot or empty-state text button when the backend names the action but not its words.
-    static func title(for action: FootAction) -> String {
+    /// The words of a foot or empty-state text button when the backend names the action but not its words.
+    /// `.checkOlder` has none: its sentence carries the count ("Check 1,200 older"), so only the engine can write it,
+    /// and a button with no words is not drawn.
+    static func title(for action: FootAction) -> String? {
         switch action {
         case .retry: return "Retry"
         case .openSettings: return "Open Settings"
-        case .checkOlder: return "Check older"
+        case .checkOlder: return nil
         case .findNarrower: return "Find something narrower."
         case .addSource: return addSource
         }

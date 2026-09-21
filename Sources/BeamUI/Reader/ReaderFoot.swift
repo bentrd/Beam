@@ -52,7 +52,7 @@ struct ReaderFoot: View {
                     .textSelection(.disabled)
             }
             if let title = model.buttonTitle, let button = model.button {
-                ReaderTextButton(title: title) { onButton(button) }
+                FootTextButton(title: title) { onButton(button) }
             }
         }
         .help(model.help ?? "")
@@ -75,35 +75,5 @@ struct ReaderFoot: View {
             }
             .transition(.opacity)
         }
-    }
-}
-
-/// A sentence's button: plain text in the accent colour, a real button in the key loop with a 24 pt hit height.
-struct ReaderTextButton: View {
-    let title: String
-    let action: () -> Void
-
-    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
-
-    var body: some View {
-        let needsUnderline = differentiateWithoutColor || ReaderAccent.isGraphiteOrYellow
-        Button(action: action) {
-            Text(title)
-                .underline(needsUnderline)
-                // Yellow belongs to hits alone, and graphite cannot be told from status text: both fall back to ink.
-                .foregroundStyle(ReaderAccent.isGraphiteOrYellow ? Color(nsColor: .labelColor) : Color.accentColor)
-                .fixedSize()
-                .frame(minHeight: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Colour alone marks a text button, unless the user's accent cannot carry that.
-enum ReaderAccent {
-    static var isGraphiteOrYellow: Bool {
-        guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return false }
-        return accent.saturationComponent < 0.15 || ReaderSelection.isYellow(accent)
     }
 }

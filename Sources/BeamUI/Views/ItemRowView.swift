@@ -47,7 +47,7 @@ struct ItemRowView: View {
 
     /// The mark is `hitInk` at full strength, and takes the selected text colour on an emphasised selection.
     private var markColor: Color {
-        backgroundProminence == .increased ? Color(nsColor: .alternateSelectedControlTextColor) : Color(nsColor: ShellPalette.hitInk)
+        backgroundProminence == .increased ? Color(nsColor: .alternateSelectedControlTextColor) : Color(nsColor: ReaderTheme.hitInk)
     }
 
     /// "Hacker News · 2h"; with no date the source stands alone.

@@ -11,8 +11,6 @@ public struct ReaderPane: View {
     private let controller: ReaderController
     private let actions: ReaderActions
 
-    /// "Getting the article" is worth saying only after a full second of waiting.
-    @State private var showsLoadingNotice = false
     /// The last question asked of each article, so reopening the ask field on the same article restores it.
     @State private var lastQuestion: (itemID: Int64, text: String)?
     /// The passage the current hit points at. Hits arrive in reading order while a run is going, so an index into
@@ -39,7 +37,7 @@ public struct ReaderPane: View {
         ReaderPage(snapshot: snapshot, textSize: textSize, commands: commands(hits), controller: controller, actions: actions)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ReaderFoot(model: ReaderFootModel(snapshot: snapshot, hits: hits, currentHit: controller.currentHit,
-                                                  isAskOpen: isAskOpen, showsLoadingNotice: showsLoadingNotice),
+                                                  isAskOpen: isAskOpen),
                            isAskOpen: isAskOpen,
                            askOpeningText: askOpeningText(for: hits.itemID),
                            askPrefill: controller.askPrefill,
@@ -57,17 +55,6 @@ public struct ReaderPane: View {
             .onChange(of: hits.isRunning) { wasRunning, isRunning in
                 if wasRunning, !isRunning, let foot = snapshot?.foot { ReaderAnnouncer.announceSettled(foot.text) }
             }
-            .task(id: LoadingWait(itemID: hits.itemID, isLoading: hits.phase == .loading)) {
-                showsLoadingNotice = false
-                guard hits.phase == .loading else { return }
-                try? await Task.sleep(for: .seconds(1))
-                if !Task.isCancelled { showsLoadingNotice = true }
-            }
-    }
-
-    private struct LoadingWait: Equatable {
-        let itemID: Int64?
-        let isLoading: Bool
     }
 
     private func commands(_ hits: ReaderHitState) -> ReaderPage.Commands {

@@ -99,11 +99,16 @@ private struct UnlistedShortcuts: View {
     }
 }
 
-/// What SwiftUI's scene modifiers cannot say: this window never joins a tab group.
+/// What SwiftUI's scene modifiers cannot say: this window never joins a tab group, and it does go full screen
+/// (DESIGN.md section 10 ends the View menu with Enter Full Screen).
 private struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { view.window?.tabbingMode = .disallowed }
+        DispatchQueue.main.async {
+            guard let window = view.window else { return }
+            window.tabbingMode = .disallowed
+            window.collectionBehavior.insert(.fullScreenPrimary)
+        }
     }
 }

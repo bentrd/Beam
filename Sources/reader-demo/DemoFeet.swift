@@ -2,6 +2,10 @@ import BeamModels
 
 /// The foot sentences the engine will write, word for word from DESIGN.md section 6.
 enum DemoFeet {
+    static let returnToRead = Foot("Return to read")
+    /// Said only once a load has taken more than a second.
+    static let gettingArticle = Foot("Getting the article")
+
     static func checking(_ paragraphs: Int) -> Foot { Foot("Checking \(paragraphs) paragraphs") }
 
     static func settled(found: Int, unsure: Int, checked: Int, judgeable: Int, saturated: Bool, hasCode: Bool) -> Foot {

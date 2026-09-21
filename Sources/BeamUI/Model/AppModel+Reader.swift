@@ -48,9 +48,11 @@ extension AppModel {
     }
 
     /// Space in the list: opens the selected row, then pages through the article (Shift-Space pages back).
+    /// Paging goes through the reader's controller, so the keyboard stays in the list.
     public func spacePressed(shift: Bool) {
         guard let id = selectedItemID else { return }
-        if openItemID == id, readerSnapshot?.phase == .ready { ReaderScrollBridge.page(up: shift) } else { open(id, trigger: .key) }
+        guard openItemID == id, readerSnapshot?.phase == .ready else { return open(id, trigger: .key) }
+        shift ? reader.pageUp() : reader.pageDown()
     }
 
     func closeReader(keepingSnapshotOf kept: Int64? = nil) {

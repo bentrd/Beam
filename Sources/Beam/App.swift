@@ -28,7 +28,7 @@ struct BeamApp: App {
     private static func makeModel() -> AppModel {
         do {
             let model = AppModel(backend: try BackendFactory.make())
-            DevDriver.model = model; DevDriver.startIfAsked()   // TEMPORARY
+            MenuCheck.runIfAsked(for: model)
             return model
         } catch {
             // Without a backend there is nothing to show; say why on the way out instead of opening an empty window.
@@ -51,6 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The menu bar exists by now; the few items AppKit owns are put right here (DESIGN.md section 10).
+        MainMenu.tidy()
+        // SwiftUI rebuilds menu items as the model changes (a pin arrives, an item's enabling turns over), and can
+        // bring AppKit's own items back with them. The moment that matters is the one before a menu is drawn.
+        NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: NSApp.mainMenu, queue: .main) { _ in
+            MainActor.assumeIsolated { MainMenu.tidy() }
+        }
         // Run straight from `.build` there is no bundle, and AppKit would leave the process without a Dock icon or menu bar.
         guard Bundle.main.bundleIdentifier == nil else { return }
         NSApp.setActivationPolicy(.regular)

@@ -18,6 +18,8 @@ struct ReaderRun {
     /// As typed. `find` wins while Find by Meaning is active.
     var carried: String?
     var find: String?
+    /// A load that has taken more than a second. A quicker one says nothing at all.
+    var isSlow = false
     var matchedByTitle = false
     /// Until the reader reports what is on screen, assume the top of the article.
     var viewport = 0...14
@@ -34,6 +36,8 @@ struct ReaderRun {
 extension FakeBackend {
     private static let readerTicks = 20
     private static let readerTick = Duration.milliseconds(100)
+    /// How long an article may take to arrive before Beam says it is fetching it.
+    private static let loadingNotice = Duration.seconds(1)
 
     // MARK: BeamBackend
 
@@ -66,6 +70,11 @@ extension FakeBackend {
             guard let self, await self.pauseReader(.milliseconds(250), epoch: epoch),                     // fetch and extract
                   let item = self.items.first(where: { $0.id == itemID }) else { return }
             self.load(self.content(for: item))
+        }
+        Task { [weak self] in
+            guard let self, await self.pauseReader(Self.loadingNotice, epoch: epoch), self.readerRun?.phase == .loading else { return }
+            self.readerRun?.isSlow = true
+            self.publishReader()
         }
         return stream
     }
@@ -191,6 +200,7 @@ extension FakeBackend {
                                       omittedImages: run.omittedImages, sentence: run.sentence, isFindActive: run.find != nil,
                                       isRunning: run.isRunning)
         if run.phase == .external { snapshot.foot = FakeFeet.returnToOpenInBrowser }
+        if run.phase == .loading, run.isSlow { snapshot.foot = FakeFeet.gettingArticle }
         guard run.phase == .ready else {
             run.continuation.yield(snapshot)
             return

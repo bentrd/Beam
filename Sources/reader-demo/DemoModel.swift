@@ -36,9 +36,9 @@ final class DemoModel {
         failsSomeJudgments = options.scene == .unchecked
         switch options.scene {
         case .lit, .saturated, .unchecked: open()
-        case .loading: snapshot = base(.loading)
+        case .loading: startLoading()
         case .unavailable: snapshot = base(.unavailable)
-        case .preview: snapshot = base(.preview, foot: Foot("Return to read"))
+        case .preview: snapshot = base(.preview, foot: DemoFeet.returnToRead)
         }
     }
 
@@ -54,11 +54,20 @@ final class DemoModel {
     /// Return on a previewed row: a slow load (long enough to see "Getting the article"), then the article.
     func openPreviewed() {
         guard isPreview else { return }
+        startLoading(arrivingIn: .milliseconds(1600))
+    }
+
+    /// The title and byline are there at once; a load that takes more than a second says so, and a quicker one
+    /// says nothing. Without an arrival the article never comes, which is the `loading` scene.
+    private func startLoading(arrivingIn arrival: Duration? = nil) {
         snapshot = base(.loading)
         run = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(1600))
-            guard !Task.isCancelled else { return }
-            self?.open()
+            try? await Task.sleep(for: .seconds(1))
+            guard !Task.isCancelled, self?.snapshot?.phase == .loading else { return }
+            self?.snapshot = self?.base(.loading, foot: DemoFeet.gettingArticle)
+            guard let arrival else { return }
+            try? await Task.sleep(for: arrival - .seconds(1))
+            if !Task.isCancelled { self?.open() }
         }
     }
 

@@ -39,6 +39,7 @@ enum FakeFeet {
 
     static let returnToRead = Foot("Return to read")
     static let returnToOpenInBrowser = Foot("Return to open in your browser")
+    static let gettingArticle = Foot("Getting the article")
     static let codeNotChecked = "Code not checked."
 
     static func checkingParagraphs(_ count: Int) -> Foot { Foot("Checking \(plural(count, "paragraph"))") }

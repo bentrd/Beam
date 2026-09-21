@@ -34,8 +34,8 @@ struct ListFootView: View {
     }
 
     @ViewBuilder private var button: some View {
-        if let action = foot.action {
-            FootTextButton(title: foot.actionTitle ?? ShellCopy.title(for: action)) { perform(action) }
+        if let action = foot.action, let title = foot.actionTitle ?? ShellCopy.title(for: action) {
+            FootTextButton(title: title) { perform(action) }
         }
     }
 

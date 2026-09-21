@@ -5,9 +5,11 @@ import Observation
 /// Not settings in the Settings-window sense: these change from the View menu and by dragging.
 @MainActor @Observable
 public final class Preferences {
-    /// The eight reader sizes of DESIGN.md section 3. Chrome never scales: Mac apps scale content, not controls.
-    public static let textSizes: [CGFloat] = [15, 16, 17, 18, 20, 22, 25, 28]
-    public static let standardTextSizeStep = 2
+    /// The eight reader sizes of DESIGN.md section 3, owned by the reader (`ReaderTextSize`).
+    /// Chrome never scales: Mac apps scale content, not controls.
+    public static let textSizes = ReaderTextSize.steps
+    /// What Actual Size returns to.
+    public static let standardTextSizeStep = ReaderTextSize.steps.firstIndex(of: ReaderTextSize.standard) ?? 0
     static let sidebarWidths: ClosedRange<Double> = 180...280
 
     private enum Key {

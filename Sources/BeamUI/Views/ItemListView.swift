@@ -42,6 +42,7 @@ struct ItemListView: View {
                 return .handled
             }
             .onKeyPress(.space, phases: .down) { press in
+                guard model.selectedItemID != nil else { return .ignored }
                 model.spacePressed(shift: press.modifiers.contains(.shift))
                 return .handled
             }
@@ -115,7 +116,7 @@ private struct EmptyListMessage: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(text).foregroundStyle(.secondary)
-            if let action { FootTextButton(title: ShellCopy.title(for: action)) { perform(action) } }
+            if let action, let title = ShellCopy.title(for: action) { FootTextButton(title: title) { perform(action) } }
         }
         .font(.system(size: 13))
         .multilineTextAlignment(.center)

@@ -7,9 +7,6 @@ struct ReaderHitState: Equatable {
     var sentence: String?
     /// Found and unsure passages in reading order, as far as they are on the page: empty while marks are held or saturated.
     var hits: [Int] = []
-    var found = 0
-    var unsure = 0
-    var checked = 0
     var isSaturated = false
     var isRunning = false
 
@@ -23,12 +20,8 @@ struct ReaderHitState: Equatable {
         sentence = snapshot.sentence
         isSaturated = snapshot.isSaturated
         isRunning = snapshot.isRunning
-        guard snapshot.phase == .ready else { return }
-        checked = snapshot.passages.indices.filter { snapshot.passages[$0].isJudgeable && (snapshot.checks[$0]?.isChecked ?? false) }.count
-        guard !snapshot.isSaturated, !ReaderMarkPlan.isHoldingHits(snapshot) else { return }
+        guard snapshot.phase == .ready, !snapshot.isSaturated, !ReaderMarkPlan.isHoldingHits(snapshot) else { return }
         hits = snapshot.hits
-        found = hits.filter { snapshot.band(at: $0) == .found }.count
-        unsure = hits.count - found
     }
 }
 
@@ -54,26 +47,22 @@ struct ReaderFootModel: Equatable {
     /// Whether the chevrons accompany the counter text.
     var showsChevrons = false
 
-    init(snapshot: ReaderSnapshot?, hits: ReaderHitState, currentHit: Int?, isAskOpen: Bool, showsLoadingNotice: Bool) {
+    init(snapshot: ReaderSnapshot?, hits: ReaderHitState, currentHit: Int?, isAskOpen: Bool) {
         guard let snapshot else { return }
         switch snapshot.phase {
-        case .preview:
-            status = snapshot.foot.text.isEmpty ? ReaderCopy.returnToRead : snapshot.foot.readerSentence
-        case .external:
-            status = snapshot.foot.text.isEmpty ? ReaderCopy.returnToOpenInBrowser : snapshot.foot.readerSentence
-        case .loading:
-            // Only a wait of more than a second is worth a sentence.
-            if showsLoadingNotice { status = snapshot.foot.text.isEmpty ? ReaderCopy.gettingArticle : snapshot.foot.readerSentence }
+        case .preview, .loading, .external:
+            // Whatever the engine is saying: "Return to read", "Return to open in your browser", or, once a load has
+            // taken more than a second, "Getting the article". A load that answers sooner says nothing.
+            status = snapshot.foot.readerSentence
         case .unavailable:
+            // The one sentence the engine cannot send: its tail is Open Original, which is not a `FootAction`.
             status = ReaderCopy.unavailable
             isProminent = true
             buttonTitle = ReaderCopy.openOriginalSentence
             button = .openOriginal
         case .ready:
             readyStatus(snapshot, hits: hits, currentHit: currentHit)
-            counterSlot(hits: hits, currentHit: currentHit, isAskOpen: isAskOpen)
-            // The paragraph count of a saturated article lives in the help tag, wherever its sentence is showing.
-            if hits.isSaturated, counter != nil { counterHelp = snapshot.foot.help }
+            counterSlot(snapshot, hits: hits, currentHit: currentHit, isAskOpen: isAskOpen)
         }
     }
 
@@ -91,22 +80,16 @@ struct ReaderFootModel: Equatable {
         }
     }
 
-    private mutating func counterSlot(hits: ReaderHitState, currentHit: Int?, isAskOpen: Bool) {
+    /// "2 of 5" once a jump has been made. While the ask field covers the status, the engine's sentence moves here
+    /// instead: it arrives in its short form ("Checking", "3 found, 2 unsure"), which is what fits beside the field.
+    private mutating func counterSlot(_ snapshot: ReaderSnapshot, hits: ReaderHitState, currentHit: Int?, isAskOpen: Bool) {
         if hits.canNavigate, let currentHit {
             counter = ReaderCopy.counter(currentHit + 1, of: hits.hits.count)
             showsChevrons = true
         } else if isAskOpen, hits.sentence != nil {
-            // The ask field has taken the status sentence's place, so the slot carries its short form.
-            if hits.isSaturated {
-                counter = ReaderCopy.saturatedShort
-            } else if hits.canNavigate {
-                counter = ReaderCopy.summary(found: hits.found, unsure: hits.unsure)
-                showsChevrons = true
-            } else if hits.isRunning {
-                counter = ReaderCopy.checking
-            } else {
-                counter = ReaderCopy.nothingFound(checked: hits.checked)
-            }
+            counter = snapshot.foot.readerSentence
+            // The paragraph count of a saturated article lives in the help tag, wherever its sentence is showing.
+            counterHelp = snapshot.foot.help
         }
     }
 }
