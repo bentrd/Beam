@@ -1,3 +1,4 @@
+import BeamEngine
 import BeamModels
 import BeamUI
 import Foundation
@@ -8,11 +9,13 @@ import Foundation
 /// design reviews and screenshots depend on it. Its companions are `-fakeKey missing|valid|rejected|unreachable`
 /// and `-fakeScenario normal|failures|stopped|offline|limit|coldStart|stall`.
 ///
-/// `BeamEngine` does not conform to `BeamBackend` yet, so for now every launch gets the fake backend, flag or no flag.
-/// The engine branch belongs here: `UserDefaults.standard.bool(forKey: "fake")` false means the engine.
+/// Anything else is the real engine, reading and writing the one database in Application Support.
 @MainActor
 enum BackendFactory {
     static func make() throws -> BeamBackend {
-        try FakeBackend(options: FakeOptions(defaults: .standard))
+        guard !UserDefaults.standard.bool(forKey: "fake") else {
+            return try FakeBackend(options: FakeOptions(defaults: .standard))
+        }
+        return try Engine()
     }
 }
