@@ -1,18 +1,125 @@
 import BeamModels
 import SwiftUI
 
-/// PLACEHOLDER — the reader lane replaces this file. The initializer is the contract: keep it.
+/// The reader: one page of text with Beam's marks painted behind it, a strip beside the scroller and a one-line foot.
+///
+/// The pane holds no product logic. It draws a `ReaderSnapshot`, keeps `ReaderController` truthful about what can be
+/// navigated, and reports what the reader does through `ReaderActions`.
 public struct ReaderPane: View {
     private let snapshot: ReaderSnapshot?
+    private let textSize: CGFloat
+    private let controller: ReaderController
+    private let actions: ReaderActions
+
+    /// "Getting the article" is worth saying only after a full second of waiting.
+    @State private var showsLoadingNotice = false
+    /// The last question asked of each article, so reopening the ask field on the same article restores it.
+    @State private var lastQuestion: (itemID: Int64, text: String)?
+    /// The passage the current hit points at. Hits arrive in reading order while a run is going, so an index into
+    /// `hits` can come to mean another paragraph; the passage is what stays current.
+    @State private var currentPassage: Int?
+    @State private var pageFocusRequests = 0
 
     /// - Parameters:
     ///   - snapshot: nil means nothing is selected: blank paper and a blank foot.
-    ///   - textSize: the reader body size in points (eight steps, 15…28, default 17).
+    ///   - textSize: the reader body size in points (eight steps, 15…28, default 17; see `ReaderTextSize`).
+    ///   - controller: lets menu commands drive the reader; the pane keeps its `canNavigate`, `isArticleOpen` and `selectedText` current.
+    ///   - actions: what the reader asks of the app. `FootAction.findNarrower` is the one action the reader performs
+    ///     itself (it opens the ask field); every other foot action is forwarded to `footAction`.
     public init(snapshot: ReaderSnapshot?, textSize: CGFloat, controller: ReaderController, actions: ReaderActions) {
         self.snapshot = snapshot
+        self.textSize = textSize
+        self.controller = controller
+        self.actions = actions
     }
 
     public var body: some View {
-        Text(snapshot?.item.title ?? "").frame(maxWidth: .infinity, maxHeight: .infinity)
+        let hits = ReaderHitState(snapshot: snapshot)
+        let isAskOpen = controller.isAskOpen && hits.isArticleOpen
+        ReaderPage(snapshot: snapshot, textSize: textSize, commands: commands(hits), controller: controller, actions: actions)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ReaderFoot(model: ReaderFootModel(snapshot: snapshot, hits: hits, currentHit: controller.currentHit,
+                                                  isAskOpen: isAskOpen, showsLoadingNotice: showsLoadingNotice),
+                           isAskOpen: isAskOpen,
+                           askOpeningText: askOpeningText(for: hits.itemID),
+                           askPrefill: controller.askPrefill,
+                           canStep: hits.canNavigate,
+                           onButton: perform,
+                           onAsk: { ask($0, itemID: hits.itemID) },
+                           onCloseAsk: closeAsk,
+                           onStep: { $0 > 0 ? controller.next() : controller.previous() })
+            }
+            .background(Color(nsColor: ReaderTheme.paper))
+            .onChange(of: hits, initial: true) { old, new in sync(from: old, to: new) }
+            .onChange(of: controller.currentHit) { _, hit in
+                currentPassage = hit.flatMap { hits.hits.indices.contains($0) ? hits.hits[$0] : nil }
+            }
+            .onChange(of: hits.isRunning) { wasRunning, isRunning in
+                if wasRunning, !isRunning, let foot = snapshot?.foot { ReaderAnnouncer.announceSettled(foot.text) }
+            }
+            .task(id: LoadingWait(itemID: hits.itemID, isLoading: hits.phase == .loading)) {
+                showsLoadingNotice = false
+                guard hits.phase == .loading else { return }
+                try? await Task.sleep(for: .seconds(1))
+                if !Task.isCancelled { showsLoadingNotice = true }
+            }
+    }
+
+    private struct LoadingWait: Equatable {
+        let itemID: Int64?
+        let isLoading: Bool
+    }
+
+    private func commands(_ hits: ReaderHitState) -> ReaderPage.Commands {
+        let position = controller.currentHit.flatMap { hits.hits.indices.contains($0) ? $0 : nil }
+        return ReaderPage.Commands(currentPassage: position.map { hits.hits[$0] }, currentPosition: position, hits: hits.hits,
+                                   hitJumps: controller.hitJumpCount, jumps: controller.jumpCount, page: controller.pageRequest,
+                                   focusRequests: pageFocusRequests)
+    }
+
+    // MARK: Keeping the controller truthful
+
+    private func sync(from old: ReaderHitState, to new: ReaderHitState) {
+        if old.itemID != new.itemID || old.sentence != new.sentence {
+            // Another article or another sentence: the old position means nothing now.
+            controller.currentHit = nil
+            currentPassage = nil
+        } else if old.hits != new.hits, let passage = currentPassage {
+            controller.currentHit = new.hits.firstIndex(of: passage)
+        }
+        if old.itemID != new.itemID || !new.isArticleOpen { controller.isAskOpen = false }
+        controller.hitCount = new.hits.count
+        controller.canNavigate = new.canNavigate
+        controller.isArticleOpen = new.isArticleOpen
+        if !new.isArticleOpen { controller.selectedText = nil }
+    }
+
+    // MARK: The ask field
+
+    private func askOpeningText(for itemID: Int64?) -> String {
+        if let prefill = controller.askPrefill, !prefill.isEmpty { return prefill }
+        if let lastQuestion, lastQuestion.itemID == itemID { return lastQuestion.text }
+        return ""
+    }
+
+    private func ask(_ question: String, itemID: Int64?) {
+        if let itemID { lastQuestion = (itemID, question) }
+        actions.find(question)
+    }
+
+    /// Closing restores the carried sentence (its marks return from the cache at once). The keyboard goes back to
+    /// the page only if the reader closed the field deliberately; if the focus already moved elsewhere, it stays there.
+    private func closeAsk(returnsFocus: Bool) {
+        controller.closeAsk()
+        actions.find(nil)
+        if returnsFocus { pageFocusRequests += 1 }
+    }
+
+    private func perform(_ button: ReaderFootModel.Button) {
+        switch button {
+        case .openOriginal: actions.openOriginal()
+        case .foot(.findNarrower): controller.openAsk()
+        case .foot(let action): actions.footAction(action)
+        }
     }
 }

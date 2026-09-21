@@ -53,5 +53,30 @@ public final class ReaderController {
         guard canNavigate, hitCount > 0 else { return }
         currentHit = ((currentHit ?? (delta > 0 ? -1 : 0)) + delta + hitCount) % hitCount      // wraps at both ends
         jumpCount += 1
+        hitJumpCount += 1
     }
+
+    // MARK: Added by the reader lane (additive: nothing public above changed; `step` also counts its jump below)
+
+    /// Counts jumps to a hit only. `jumpCount` also counts Jump to Selection, and the page must tell the two apart
+    /// even when `currentHit` does not change (Find Next in an article with a single hit).
+    private(set) var hitJumpCount = 0
+
+    /// A click on the strip lands on one particular hit instead of stepping to a neighbour.
+    func jump(toHit index: Int) {
+        guard canNavigate, (0..<hitCount).contains(index) else { return }
+        currentHit = index
+        jumpCount += 1
+        hitJumpCount += 1
+    }
+
+    /// Pages the article from wherever the focus is: Space and Shift-Space in the list page the reader without a focus change.
+    public func pageDown() { pageRequest = PageRequest(count: pageRequest.count + 1, isDown: true) }
+    public func pageUp() { pageRequest = PageRequest(count: pageRequest.count + 1, isDown: false) }
+
+    struct PageRequest: Equatable {
+        var count = 0
+        var isDown = true
+    }
+    private(set) var pageRequest = PageRequest()
 }
