@@ -100,9 +100,15 @@ enum FramingCheck {
         let web = StubWeb()
         web.serve("https://ceiling.example/feed.xml",
                   Fixtures.rss(title: "Ceiling", site: "https://ceiling.example", count: 300, found: 40, unsure: 40))
-        let jev = StubJev(tokens: 3_000)      // fat answers, so the ceiling arrives while there is still work left
+        // Fat answers and a small queue: the ceiling arrives with work still to do, and the overshoot stays
+        // small enough to state exactly rather than to guess at.
+        let tokensPerAnswer = 3_000
+        let inFlight = 8
+        let ceiling = 0.01
+        let jev = StubJev(tokens: tokensPerAnswer)
         guard let lab = try? await Lab.offline(starters: [Lab.candidate("Ceiling", "https://ceiling.example/feed.xml")],
-                                               jev: jev, web: web, spendCeiling: 0.01, readerReserve: 0.002) else {
+                                               jev: jev, web: web, spendCeiling: ceiling, readerReserve: 0.002,
+                                               maxInFlight: inFlight) else {
             report.expect(false, "an engine with a $0.01 ceiling")
             return
         }
@@ -110,8 +116,14 @@ enum FramingCheck {
         let spent = await lab.engine.dollarsToday()
         let foot = listed.last?.foot.text ?? ""
 
-        report.expect(spent <= 0.012, "the run stops at the ceiling instead of running away",
-                      detail: String(format: "$%.4f spent against a $0.01 ceiling", spent))
+        // The breaker stops new requests; the ones already sent still land. So the most that can be spent is the
+        // ceiling plus one full queue — a number this check can state, unlike a round figure picked by hand.
+        let overshoot = Double(inFlight * tokensPerAnswer) * 0.042 / 1_000_000
+        let bound = ceiling + overshoot
+        let unchecked = Double(300 * tokensPerAnswer) * 0.042 / 1_000_000
+        report.expect(spent <= bound, "the run stops at the ceiling instead of running away",
+                      detail: String(format: "$%.4f spent; ceiling $%.4f plus at most $%.4f still in flight; "
+                                     + "an unchecked run would have spent $%.4f", spent, ceiling, overshoot, unchecked))
         report.expect(jev.count < 300, "and it stops asking", detail: "\(jev.count) of 300 items judged")
         report.expect(foot.contains("Daily limit") || foot.contains("not checked"),
                       "the foot says so rather than pretending the rest is nothing", detail: foot)
