@@ -1,0 +1,8 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+*.xcodeproj
+mock/.build/
+mock/build/
+spikes/swift/.build/
