@@ -40,8 +40,7 @@ final class Prejudge {
 
             let judgeable = passages.indices.filter { passages[$0].isJudgeable }.prefix(Windows.prejudgedPassages)
             let targets = judgeable.map { index in
-                JudgeTarget(id: index, textHash: passages[index].textHash,
-                            state: ["article": full.title, "section_heading": passages[index].section, "passage": passages[index].text])
+                JudgeTarget(id: index, textHash: passages[index].textHash, state: passages[index].judgedText)
             }
             guard !targets.isEmpty else { continue }
             let known = await context.cache.answers(textHashes: targets.map(\.textHash), sentences: [framed],

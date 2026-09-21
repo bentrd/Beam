@@ -117,10 +117,28 @@ public struct Passage: Hashable, Codable, Sendable {
     public var text: String
     /// The nearest heading above, or "" — sent with the passage because context lifts recall (measured).
     public var section: String
-    public init(kind: Kind, text: String, section: String = "") { self.kind = kind; self.text = text; self.section = section }
+    /// The title of the article this passage was taken from, or "". Sent with the passage for the same reason as
+    /// the heading, and carried here rather than looked up beside it so that what is judged and what is hashed
+    /// cannot drift apart. It is the page's own title, never the feed row's: a row's title often restates the
+    /// sentence that found it, and sending that with every paragraph would make each one read as relevant.
+    public var article: String
+    public init(kind: Kind, text: String, section: String = "", article: String = "") {
+        self.kind = kind; self.text = text; self.section = section; self.article = article
+    }
     /// Headings and code are shown but never judged.
     public var isJudgeable: Bool { kind == .paragraph || kind == .quote || kind == .listItem }
-    public var textHash: String { Hashing.sha256(canonical: ["section": section, "passage": text]) }
+
+    /// Exactly the text sent to judge this passage (PRODUCT.md addendum, "Frames"). The context is not
+    /// decoration: judged alone a paragraph cannot know its subject, and giving it the article and the heading
+    /// is what lifted recall and removed most of the spill-over (EVIDENCE.md, risk 3).
+    public var judgedText: [String: String] {
+        ["article": article, "section_heading": section, "passage": text]
+    }
+
+    /// Changes whenever the judged text changes, exactly like `Item.textHash`: the cache key is a hash of what
+    /// was actually sent (PRODUCT.md section 3), so two articles that share a paragraph under the same heading
+    /// were judged on different states and cannot answer for each other.
+    public var textHash: String { Hashing.sha256(canonical: judgedText) }
 }
 
 public enum ArticleContent: Hashable, Codable, Sendable {

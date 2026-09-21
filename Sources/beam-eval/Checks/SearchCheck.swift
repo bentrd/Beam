@@ -29,9 +29,7 @@ enum SearchCheck {
         let web = StubWeb()
         // Three sources, so the round-robin has something to spread over, and 400 items, so there are older ones.
         for (index, name) in ["a", "b", "c"].enumerated() {
-            web.serve("https://\(name).example/feed.xml",
-                      Fixtures.rss(title: "Fixture \(name.uppercased())", site: "https://\(name).example",
-                                   count: index == 0 ? 160 : 120, found: 10, unsure: 10, from: index + 1, guidPrefix: "\(name)item"))
+            web.serve("https://\(name).example/feed.xml", feed(name, count: index == 0 ? 160 : 120, from: index + 1))
         }
         let jev = StubJev()
         guard let lab = try? await Lab.offline(starters: ["a", "b", "c"].map {
@@ -101,6 +99,18 @@ enum SearchCheck {
         })
         report.expectEqual(jev.count, 100, "checking older judges exactly the 100 items that were left")
         report.expectEqual(extended.last?.foot.text, "400 items checked", "and the foot then counts them all")
+    }
+
+    /// One of the three fixture sources, each publishing its own text.
+    ///
+    /// Two feeds carrying a byte-identical title and snippet are one text to Beam — "Cache key: sha256(text) +
+    /// sha256(framed sentence) + model id" (PRODUCT.md section 3) — so judging one of them answers the other, and
+    /// a check that counts requests per item would be counting something else. Real sites do not publish each
+    /// other's items; the generator's bare index did.
+    private static func feed(_ name: String, count: Int, from day: Int) -> String {
+        Fixtures.rss(title: "Fixture \(name.uppercased())", site: "https://\(name).example", count: count,
+                     found: 10, unsure: 10, from: day, guidPrefix: "\(name)item")
+            .replacingOccurrences(of: "A paragraph about", with: "A paragraph from \(name) about")
     }
 
     /// Rows come back in a scattered order; what matters is that the list is sorted before it is published.

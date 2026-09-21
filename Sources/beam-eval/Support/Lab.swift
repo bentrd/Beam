@@ -41,6 +41,8 @@ struct Lab {
                                                   keyProvider: keyProvider(key))
         environment.starters = starters.map { CatalogEntry(candidate: $0, blurb: "A fixture", isStarter: true) }
         environment.catalog = environment.starters
+        // Seeding only adds the sources; their items arrive with the launch refresh, which `check()` leaves off.
+        environment.refreshesOnLaunch = true
         let engine = try Engine(environment: environment)
         await engine.launched()
         return Lab(engine: engine, jev: StubJev(), web: web, pages: pages)

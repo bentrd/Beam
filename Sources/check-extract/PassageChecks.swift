@@ -24,8 +24,8 @@ enum PassageChecks {
         report.expectEqual(passages("<p>\(long)</p><p>Why?</p><p>\(other)</p>").map(\.text), [long, "Why? \(other)"], "a short paragraph merges forward")
         report.expectEqual(passages("<p>\(long)</p><p>Thanks!</p><h2>Next</h2><p>\(other)</p>").map(\.text), ["\(long) Thanks!", "Next", other],
                            "with a heading in the way it merges backward, never across the heading")
-        report.expectEqual(passages("<h2>Status</h2><p>Deprecated.</p><h2>Usage</h2><p>\(long)</p>").map(\.text), ["Status", "Deprecated.", "Usage", long],
-                           "alone in its section it stays: the author's text is never dropped")
+        report.expectEqual(passages("<h2>Status</h2><p>Deprecated.</p><h2>Usage</h2><p>\(long)</p>").map(\.text), ["Usage", long],
+                           "with nothing to merge into it is dropped, and the heading it emptied goes with it")
         let list = passages("<p>\(long)</p><ul><li>Fix crash on launch</li><li>Add dark mode</li><li>Update dependencies</li></ul>")
         report.expectEqual(list.last?.text, "Fix crash on launch\u{2028}Add dark mode\u{2028}Update dependencies", "short list items merge onto separate lines of one passage")
         report.expectEqual(list.last?.kind, .listItem, "and stay a list item")

@@ -31,9 +31,14 @@ enum ReaderSnapshotMaker {
         let framed = run.sentence.map(FramedSentence.passage)
         let answers = run.answers(for: framed)
         let judgeable = run.judgeable
-        // No marks at all before 24 paragraphs are checked (or all of them): saturation cannot be told from fewer,
-        // and marks that appear and then vanish are worse than marks that arrive late.
-        let isRevealed = answers.count >= min(Bands.saturationMinimumChecked, judgeable.count)
+        // Saturation cannot be told from fewer than 24 answers (or all of them, in a short article).
+        let canTellSaturation = answers.count >= min(Bands.saturationMinimumChecked, judgeable.count)
+        // While the run is going that is also the bar for drawing anything, because marks that appear and then
+        // vanish are worse than marks that arrive late. A settled run has nothing more coming: what was checked
+        // is final and is shown, however little of it there is. Holding it back would make an article whose
+        // requests mostly failed report every paragraph "not checked" while its own foot counts the ones that
+        // were — and MUST 6 is that exactly the refused paragraphs read "not checked".
+        let isRevealed = !run.isRunning || canTellSaturation
 
         if let framed {
             for index in judgeable {
@@ -48,7 +53,12 @@ enum ReaderSnapshotMaker {
         let bands = answers.values.map { Bands.passage(framed?.cappedForPassage($0) ?? $0) }
         let found = bands.filter { $0 == .found }.count
         let unsure = bands.filter { $0 == .unsure }.count
-        let isOverTheLine = isRevealed && !answers.isEmpty && Double(found) / Double(answers.count) > Bands.saturationShare
+        // Saturation is what a carried sentence does to an article that is entirely about it, and the one way out
+        // of it is this field: "Find something narrower." invites a question, so a question must always be allowed
+        // to show its answer. Were it swallowed the same way, the only action a saturated article offers would
+        // lead to another blank article (PRODUCT.md addendum).
+        let isOverTheLine = !run.isFindActive && canTellSaturation && !answers.isEmpty
+            && Double(found) / Double(answers.count) > Bands.saturationShare
         // Sticky while the run lasts, decided for good when it settles.
         let isSaturated = run.isRunning ? (run.isSaturated || isOverTheLine) : isOverTheLine
 
@@ -83,9 +93,7 @@ enum ReaderSnapshotMaker {
         default: break
         }
         if checked < judgeable { return Feet.paragraphProgress(checked, of: judgeable, retry: true) }
-        if isSaturated {
-            return run.isFindActive ? Feet.askSaturated(found: found, of: checked) : Feet.saturated(found: found, of: checked)
-        }
+        if isSaturated { return Feet.saturated(found: found, of: checked) }
         if found + unsure == 0, run.isFindActive { return Feet.askNothingFound(in: checked) }
 
         let sentence = found + unsure == 0

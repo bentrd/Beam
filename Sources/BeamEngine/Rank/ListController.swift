@@ -122,13 +122,14 @@ final class ListController {
         guard isCurrent(epoch) else { return }
         apply(known, sentences: sentences)
 
-        // The first snapshot already says whether anything is running, so a cached sentence repaints at once
-        // and a run that is about to send never looks settled for an instant.
+        // A run that is about to send says so before it sends, so it never looks settled for an instant; a run
+        // with nothing to send is already settled, and settling publishes it. One settled snapshot per settling
+        // is what lets the list act on it: "Check 1,200 older" must widen this run, not the one it replaced.
         let targets = self.targets(missing: sentences, known: known)
         let isRunning = run?.sendsRequests == true && context.canSend && !targets.isEmpty
         run?.isRunning = isRunning
-        throttle.flush()
         guard isRunning else { return settle(nil, epoch: epoch) }
+        throttle.flush()
 
         countAfterAStall(epoch: epoch)
         let outcome = await context.itemPass().run(

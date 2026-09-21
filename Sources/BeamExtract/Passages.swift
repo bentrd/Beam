@@ -61,8 +61,10 @@ public enum Passages {
         }.map(\.element)
     }
 
-    /// A short passage joins the next one of its kind; failing that the previous one; failing that it stands alone
-    /// (a lone "Deprecated." under a heading is still the author's text). Headings and code are walls.
+    /// A short passage joins the next one of its kind; failing that the previous one; failing that it is dropped.
+    /// Headings and code are walls, so a fragment sitting between two headings ("Effective date: April 27, 2026")
+    /// has nothing to join: it would be a passage the judge is asked about and can say nothing about, which is worse
+    /// than losing the line — and the heading it hung under, now empty, goes with it (`droppingEmptySections`).
     /// Short paragraphs above the first heading or full passage are the exception: up there they are datelines and
     /// bylines ("31st December 2024", "July 2023"), and merged forward they would open the article's first paragraph.
     private static func mergingShort(_ blocks: [Block]) -> [Block] {
@@ -76,8 +78,10 @@ public enum Passages {
         func settle() {
             guard let short = carried else { return }
             carried = nil
-            if let last = result.last, last.kind == short.kind, last.text.count + short.text.count < maximumLength { result[result.count - 1] = joined(last, short) }
-            else { result.append(short) }
+            // No length guard on the way back: an over-long merge is split at a sentence end a moment later, while
+            // refusing it here would throw the author's words away over an accident of arithmetic.
+            guard let last = result.last, last.kind == short.kind else { return }
+            result[result.count - 1] = joined(last, short)
         }
         for (index, block) in blocks.enumerated() {
             guard block.isBody, block.kind != .code else { settle(); result.append(block); continue }

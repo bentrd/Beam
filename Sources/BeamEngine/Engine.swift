@@ -40,7 +40,6 @@ public final class Engine: BeamBackend {
     /// Set when a pass over the pins left items unjudged after its retries: the pin rows then warn.
     var pinsHaveUnchecked = false
     var launchTask: Task<Void, Never>?
-    var validation: Task<KeyStatus, Never>?
     var pinTimer: Task<Void, Never>?
     var wakeObserver: (any NSObjectProtocol)?
 
@@ -82,11 +81,10 @@ public final class Engine: BeamBackend {
         reader = ReaderController(context: context)
         prejudge = Prejudge(context: context)
 
-        // Optimistic: a key that is there is assumed to work until the launch check says otherwise, so the first
-        // search of a launch does not wait on a round trip. A refusal corrects it and the foot says so.
+        // Optimistic: a key that is there is assumed to work until something Beam actually needed to send is
+        // refused, so a launch costs nothing and the first search does not wait on a round trip.
         context.keyStatus = keyProvider.key() == nil ? .missing : .valid
         lists.onSettled = { [weak self] run in self?.listSettled(run) }
-        reader.onOpened = { [weak self] itemID in self?.opened(itemID) }
         launchTask = Task { [weak self] in await self?.launch() }
     }
 
@@ -94,8 +92,8 @@ public final class Engine: BeamBackend {
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
 
-    /// Returns once the first launch has seeded, read its settings and validated the key. The app never needs
-    /// this; checks do, so that they can say what they measured.
+    /// Returns once the first launch has seeded its sources and read its settings. The app never needs this;
+    /// checks do, so that they can say what they measured.
     public func launched() async {
         await launchTask?.value
     }
@@ -105,7 +103,6 @@ public final class Engine: BeamBackend {
         prejudgesTopResultsStorage = (try? await context.database.meta(Self.prejudgeKey)) == "1"
         await seedStarterSources()
         await reloadSidebar()
-        validateKey()
         if environment.refreshesOnLaunch { await refresh() }
         startPinTimer()
         watchForWaking()
@@ -113,9 +110,11 @@ public final class Engine: BeamBackend {
 
     // MARK: Key, privacy, spend
 
+    /// What Beam believes about the key. A stored key is believed until something Beam had to send is refused:
+    /// a launch that checked it would be one request sent before there was anything to judge, and Beam sends
+    /// nothing it does not need (PRODUCT.md MUST 4: twenty new items cost exactly twenty requests).
     public func keyStatus() async -> KeyStatus {
-        if let validation { return await validation.value }
-        return context.keyStatus
+        context.keyStatus
     }
 
     /// The key sheet and Settings. An empty key removes the stored one; anything else is checked with one
@@ -125,7 +124,6 @@ public final class Engine: BeamBackend {
         guard !typed.isEmpty else {
             do { try environment.keyProvider.remove() } catch { EngineLog.failure("removing the key", error) }
             context.keyStatus = .missing
-            validation = nil
             lists.reload()
             return .missing
         }
@@ -134,7 +132,6 @@ public final class Engine: BeamBackend {
             do { try environment.keyProvider.set(typed) } catch { EngineLog.failure("storing the key", error) }
         }
         context.keyStatus = status
-        validation = Task { status }
         // "On success the sheet closes and the waiting sentence runs."
         if status == .valid { lists.retry() }
         return status
@@ -142,20 +139,6 @@ public final class Engine: BeamBackend {
 
     public func dollarsToday() async -> Double {
         await context.spend.dollarsToday
-    }
-
-    private func validateKey() {
-        guard environment.keyProvider.key() != nil else {
-            context.keyStatus = .missing
-            validation = Task { .missing }
-            return
-        }
-        validation = Task { [context] in
-            let status = await context.judge.validateKey()
-            // An unreachable service is not a bad key: keep sending, and let the run say "Offline" if it is.
-            if status != .unreachable { context.keyStatus = status }
-            return status
-        }
     }
 
     // MARK: Undo
@@ -179,7 +162,8 @@ public final class Engine: BeamBackend {
     }
 
     public func open(itemID: Int64, carrying sentence: String?) -> AsyncStream<ReaderSnapshot> {
-        reader.open(itemID: itemID, carrying: sentence ?? lists.carriedSentence)
+        markOpened(itemID)
+        return reader.open(itemID: itemID, carrying: sentence ?? lists.carriedSentence)
     }
 
     public func find(_ sentence: String?) { reader.find(sentence) }
@@ -194,8 +178,12 @@ public final class Engine: BeamBackend {
         return host == "youtu.be" || host == "youtube.com" || host.hasSuffix(".youtube.com")
     }
 
-    /// Opening an item is what makes it read; arrowing past it never does.
-    private func opened(_ itemID: Int64) {
+    /// Opening an item is what makes it read; arrowing past it never does (PRODUCT.md, read/unread).
+    ///
+    /// It is written as the reader is asked for the article rather than after the article arrives: this write and
+    /// the reader's own read of the item go to the same database, and this one is queued first, so the article the
+    /// reader publishes already carries the read state the list and the sidebar are about to show.
+    private func markOpened(_ itemID: Int64) {
         Task { [weak self] in
             guard let self else { return }
             do {

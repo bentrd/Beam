@@ -16,9 +16,6 @@ final class ReaderController {
     private var throttle: SnapshotThrottle!
     private var epoch = 0
 
-    /// The engine marks the item read and republishes the sidebar and the list.
-    var onOpened: ((Int64) -> Void)?
-
     init(context: EngineContext) {
         self.context = context
         throttle = SnapshotThrottle(every: Windows.readerTick) { [weak self] in self?.publishNow() }
@@ -87,7 +84,6 @@ final class ReaderController {
         guard epoch == self.epoch else { return }
         guard let item else { return continuation.finish() }
 
-        onOpened?(itemID)
         let carried = sentence.map(Sentence.init).flatMap { $0.isEmpty ? nil : $0 }
         var opened = ReaderRun(itemID: itemID, continuation: continuation, item: item,
                                sourceTitle: context.sourceTitle(item.sourceID), sourceKind: context.sourceKind(item.sourceID))
@@ -193,13 +189,15 @@ final class ReaderController {
         }
         run!.answers[framed.hash] = answers
 
-        // One publication once it is known whether anything is running: a sentence answered from the cache hands
-        // its marks back in a single snapshot, with nothing sent.
+        // One publication once it is known whether anything is running. A sentence answered entirely from the
+        // cache is published by `settle` alone: flushing here as well would put a second, identical snapshot in
+        // front of that one, and whoever acts on the first acts a snapshot early — ⌘F pressed there would be
+        // answered by the marks it was meant to replace.
         var pending = judgeable.filter { answers[$0] == nil }
         let isRunning = !pending.isEmpty && context.canSend
         run!.isRunning = isRunning
-        throttle.flush()
         guard isRunning else { return settle(nil, epoch: epoch) }
+        throttle.flush()
 
         // One chunk at a time, re-ordered by what is on screen each time: the viewport keeps its priority even
         // when the reader scrolls while the article is still being judged.
@@ -226,11 +224,7 @@ final class ReaderController {
         guard let current = run else { return [] }
         return indices.compactMap { index in
             guard let hash = current.hashes[index], current.passages.indices.contains(index) else { return nil }
-            let passage = current.passages[index]
-            // Context is not decoration: the article title and the section heading are what stop a paragraph from
-            // being judged out of its subject (EVIDENCE.md, risk 3).
-            return JudgeTarget(id: index, textHash: hash,
-                               state: ["article": current.item.title, "section_heading": passage.section, "passage": passage.text])
+            return JudgeTarget(id: index, textHash: hash, state: current.passages[index].judgedText)
         }
     }
 

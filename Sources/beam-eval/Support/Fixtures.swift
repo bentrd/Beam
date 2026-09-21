@@ -42,11 +42,14 @@ enum Fixtures {
     /// One feed carrying everything a parser is supposed to survive (PRODUCT.md MUST 2): a byte-order mark,
     /// entities that are not XML's, CDATA, six date formats, a repeated GUID and a repeated link.
     static var dirty: String {
+        // Six formats, and deliberately six different instants: a format that was not parsed at all, or that
+        // silently borrowed another's value, can only be caught by the dates coming out distinct. "08:00 +0200"
+        // is already 06:00 UTC, so the plain ISO literal is half an hour off it rather than the same moment.
         let dates = [
             "Tue, 15 Sep 2026 08:00:00 GMT",                // RFC 822
             "Tue, 15 Sep 2026 08:00:00 +0200",              // RFC 822 with an offset
             "15 Sep 2026 07:00:00 GMT",                     // RFC 822 without a weekday
-            "2026-09-15T06:00:00Z",                         // ISO 8601
+            "2026-09-15T06:30:00Z",                         // ISO 8601
             "2026-09-15T05:00:00.123+02:00",                // ISO 8601 with fractions
             "2026-09-15 04:00:00",                          // the one feeds invent
         ]

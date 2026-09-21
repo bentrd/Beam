@@ -36,7 +36,9 @@ public struct ArticleLoader: Sendable {
             if let page = await arxivPaper(ArxivID.find(in: item), title: item.title) { return page }
             if let feed, !feed.passages.isEmpty { return feed.asContent }
             let abstract = Passages.fromPlainText(item.snippet)
-            return abstract.isEmpty ? .unavailable(reason: "No HTML version and no abstract") : .ready(passages: abstract, images: 0, tables: 0)
+            guard !abstract.isEmpty else { return .unavailable(reason: "No HTML version and no abstract") }
+            return .ready(passages: abstract.map { var passage = $0; passage.article = item.title; return passage },
+                          images: 0, tables: 0)
         case .feed, .hackerNews, .reddit:
             if item.url.map(Self.isVideoPage) == true { return .external }
             if let feed, Self.characters(in: feed) >= Self.feedContentMinimumCharacters { return feed.asContent }

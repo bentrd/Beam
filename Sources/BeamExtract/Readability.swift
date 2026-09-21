@@ -20,6 +20,21 @@ public struct ExtractedArticle: Hashable, Sendable {
     public var needsJavaScript: Bool
 
     public var asContent: ArticleContent { .ready(passages: passages, images: images, tables: tables) }
+
+    /// Stamps every passage with the article's title, which is part of the text each one is judged on and so
+    /// part of its cache key. Done here, where the title and the passages first meet, because a passage that
+    /// travelled without it would be judged in one article and answered for from another.
+    public init(title: String, passages: [Passage], images: Int, tables: Int, wordCount: Int,
+                usedEmbeddedBody: Bool, declaresPaywall: Bool, needsJavaScript: Bool) {
+        self.title = title
+        self.passages = passages.map { var passage = $0; passage.article = title; return passage }
+        self.images = images
+        self.tables = tables
+        self.wordCount = wordCount
+        self.usedEmbeddedBody = usedEmbeddedBody
+        self.declaresPaywall = declaresPaywall
+        self.needsJavaScript = needsJavaScript
+    }
 }
 
 /// Dependency-free article extraction: Beam's own decoding, a pass that makes HTML5 survive tidy, Foundation's

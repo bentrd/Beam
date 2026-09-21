@@ -7,7 +7,9 @@ struct JudgeTarget<ID: Hashable & Sendable>: Sendable {
     let id: ID
     /// `Item.textHash` or `Passage.textHash`.
     let textHash: String
-    /// The state of one request: `{title, snippet}` for an item, `{article, section_heading, passage}` for a passage.
+    /// The state of one request: `Item.judgedText` for an item, `Passage.judgedText` for a passage. Whatever is
+    /// sent here is what `textHash` above must cover, or a judgment is answered for from a key that never knew
+    /// about part of the text it was made on.
     let state: [String: String]
 }
 
@@ -40,29 +42,57 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
     let purpose: SpendMeter.Purpose
     let now: @Sendable () -> Date
 
-    /// Shared across the pass's requests: the failure streak that stops a run, and whatever ended it.
-    private actor State {
-        var streak = FailureStreak()
-        var ending: JudgePassOutcome?
-        /// True while every failure of the current streak was "can't reach TypeSafe".
-        var allUnreachable = true
+    /// What one request came back with.
+    private enum Answer: Sendable {
+        case answered
+        case refused(JevError)
+    }
 
+    /// Shared across the pass's requests: the failure streak that stops a run, and whatever ended it.
+    ///
+    /// "Ten consecutive failures" counts ten texts in a row **in the order the run asked about them**, not ten
+    /// answers that happened to arrive together. Sixty-four requests are in flight at once and a failing one is
+    /// retried five times, so failures always land in a clump after the successes they were sent beside: counting
+    /// arrivals would stop a run that is merely three-in-ten unlucky, and PRODUCT.md MUST 6 asks for an honest
+    /// count of what was not checked, not a run that gives up on a service that is answering.
+    private actor State {
+        var ending: JudgePassOutcome?
         var shouldStop: Bool { ending != nil }
 
-        func end(_ outcome: JudgePassOutcome) { if ending == nil { ending = outcome } }
+        private var streak = FailureStreak()
+        /// True while every failure of the current streak was "can't reach TypeSafe".
+        private var allUnreachable = true
+        /// Answers that have arrived out of order and are waiting for the ones before them.
+        private var waiting: [Int: Answer] = [:]
+        /// How far the reading in order has got.
+        private var read = 0
 
-        func recordSuccess() {
-            streak.recordSuccess()
-            allUnreachable = true
+        /// - Returns: true when this is what ended the pass, and so what must take its queue down with it.
+        @discardableResult
+        func end(_ outcome: JudgePassOutcome) -> Bool {
+            guard ending == nil else { return false }
+            ending = outcome
+            return true
         }
 
-        /// - Returns: true when this failure was the tenth in a row and the pass must stop.
-        func record(_ error: JevError) -> Bool {
-            if case .unreachable = error {} else { allUnreachable = false }
-            streak.record(error)
-            guard streak.shouldStop else { return false }
-            end(allUnreachable ? .offline : .stopped)
-            return true
+        /// Reads every answer that is now in order, however out of order they arrived.
+        /// - Parameter position: the target's place in the order the pass was given.
+        /// - Returns: true when what it read ended the pass.
+        func record(_ answer: Answer, at position: Int) -> Bool {
+            waiting[position] = answer
+            while let answer = waiting.removeValue(forKey: read) {
+                read += 1
+                switch answer {
+                case .answered:
+                    streak.recordSuccess()
+                    allUnreachable = true
+                case let .refused(error):
+                    if case .unreachable = error {} else { allUnreachable = false }
+                    streak.record(error)
+                    if streak.shouldStop { return end(allUnreachable ? .offline : .stopped) }
+                }
+            }
+            return false
         }
     }
 
@@ -77,31 +107,43 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
              answered: @escaping @MainActor @Sendable (ID, [String: Double]) -> Void,
              failed: @escaping @MainActor @Sendable (ID) -> Void) async -> JudgePassOutcome {
         guard !targets.isEmpty, !sentences.isEmpty else { return .completed }
+        // Only what is actually asked about takes a place in the order: a target the cache already answers must
+        // not leave a hole in it, since a hole would hold up the reading that decides when to stop.
+        let asked = targets.compactMap { target -> (target: JudgeTarget<ID>, sentences: [FramedSentence])? in
+            let missing = sentences.filter { known[target.textHash]?[$0.hash] == nil }
+            return missing.isEmpty ? nil : (target, missing)
+        }
+        guard !asked.isEmpty else { return .completed }
         let state = State()
 
-        await withTaskGroup(of: Void.self) { group in
-            for target in targets {
-                let missing = sentences.filter { known[target.textHash]?[$0.hash] == nil }
-                guard !missing.isEmpty else { continue }
+        await withTaskGroup(of: Bool.self) { group in
+            for (position, ask) in asked.enumerated() {
                 group.addTask {
                     // Checked here rather than before the group: ten failures may have landed while this one queued.
-                    guard await state.shouldStop == false else { return }
-                    await self.judgeOne(target, sentences: missing, state: state, answered: answered, failed: failed)
+                    guard await state.shouldStop == false else { return true }
+                    return await self.judgeOne(ask.target, sentences: ask.sentences, at: position, state: state,
+                                               answered: answered, failed: failed)
                 }
             }
-            await group.waitForAll()
+            // A run that has stopped takes its queue with it. The rest cannot succeed where ten in a row failed,
+            // and every one of them would otherwise still be sent, retried five times, and waited for.
+            for await mustStop in group where mustStop {
+                group.cancelAll()
+                break
+            }
         }
         await cache.flush()
         if Task.isCancelled { return .cancelled }
         return (await state.ending) ?? .completed
     }
 
-    private func judgeOne(_ target: JudgeTarget<ID>, sentences: [FramedSentence], state: State,
+    /// - Returns: true when this request is the one that ended the pass.
+    private func judgeOne(_ target: JudgeTarget<ID>, sentences: [FramedSentence], at position: Int, state: State,
                           answered: @escaping @MainActor @Sendable (ID, [String: Double]) -> Void,
-                          failed: @escaping @MainActor @Sendable (ID) -> Void) async {
+                          failed: @escaping @MainActor @Sendable (ID) -> Void) async -> Bool {
         do {
             let judgments = try await judge.judge(state: target.state, frames: sentences.map(\.frame), for: purpose)
-            await state.recordSuccess()
+            let hasEnded = await state.record(.answered, at: position)
             await MainActor.run { models.saw(judgments.model) }
 
             let at = now()
@@ -116,19 +158,23 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
             // A request that answered nothing usable is a failure; one that answered some sentences and not
             // others hands back what it has, and the caller reads a missing sentence as "not checked".
             if probabilities.isEmpty { await failed(target.id) } else { await answered(target.id, probabilities) }
+            return hasEnded
         } catch is CancellationError {
-            await state.end(.cancelled)
+            return await state.end(.cancelled)
         } catch let error as JevError {
+            let hasEnded: Bool
             switch error {
-            case .missingKey: await state.end(.missingKey)
-            case .unauthorized: await state.end(.keyRejected)
-            case .dailyLimitReached: await state.end(.dailyLimit)
-            default: _ = await state.record(error)
+            case .missingKey: hasEnded = await state.end(.missingKey)
+            case .unauthorized: hasEnded = await state.end(.keyRejected)
+            case .dailyLimitReached: hasEnded = await state.end(.dailyLimit)
+            default: hasEnded = await state.record(.refused(error), at: position)
             }
             await failed(target.id)
+            return hasEnded
         } catch {
-            _ = await state.record(.unreachable(error.localizedDescription))
+            let hasEnded = await state.record(.refused(.unreachable(error.localizedDescription)), at: position)
             await failed(target.id)
+            return hasEnded
         }
     }
 }

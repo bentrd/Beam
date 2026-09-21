@@ -1,0 +1,254 @@
+== eval ==
+
+-- Cold start (MUST 1) — fixtures
+  ok    20 or more items are listed
+  ok    they are there within 5 s
+  ok    a keyless launch sends nothing to TypeSafe
+  ok    a list with no sentence ranks nothing
+  ok    one of them opens readable
+  ok    with its paragraphs
+  ok    opening it with no key still sends nothing
+  FAIL  opening an item marks it read
+  ok    the foot asks for a key
+  ok    and offers Settings
+  ok    a sentence with no key sends nothing
+  ok    the key status is missing
+  skip  cold start on the real web  (--offline)
+
+-- Sources (MUST 2) — resolving fixtures
+  ok    a blog homepage resolves through its <link rel=alternate>
+  ok    a /channel/UC… address resolves as YouTube
+  ok    a GitHub repository resolves to its releases
+  ok    the blog is added
+  ok    resolving it again says it is already added
+  ok    its items are fetched as soon as it is added
+  ok    a release item carries its repository name
+  ok    and is judged as "mlx v0.30.6"
+
+-- Sources (MUST 2) — dirty feeds
+  ok    six entries survive a BOM, entities, CDATA and six date formats
+  ok    every one of them has a date
+  ok    entities are decoded, not shown
+  ok    including the ones that are not XML's
+  ok    CDATA markup is stripped from snippets
+  FAIL  the six date formats give six distinct dates  [got 5, expected 6]
+  skip  resolving real addresses  (--offline)
+
+-- Search (MUST 3) — 400 fixture items
+  ok    400 items are listed with no sentence
+  FAIL  listing them ranks nothing and sends nothing  [got 1, expected 0]
+  ok    one request per item of the newest 300, and no more
+  ok    each request carries the one active sentence
+  ok    the search finds rows
+  ok    and lists unsure ones behind them
+  ok    found rows come before unsure ones
+  ok    rows are ordered by probability rounded to 0.05, then by date
+  ok    nothing below 0.45 is listed
+  ok    found rows come from more than one source
+  ok    the foot says how far the run reached
+  ok    and offers the rest
+  ok    repeating the same sentence sends nothing
+  ok    and lists exactly the same rows
+  ok    a cached sentence arrives in one snapshot
+  ok    every arrowed row previews
+  ok    arrowing 20 rows sends nothing
+  ok    clicking a source during a search sends nothing
+  ok    and shows only that source's rows
+  FAIL  checking older judges exactly the 100 items that were left  [got 0, expected 100]
+  FAIL  and the foot then counts them all  [got Optional("Newest 300 of 400 checked."), expected Optional("400 items checked")]
+  skip  search timings on the real web  (--offline)
+
+-- Pins (MUST 4) — one request per item, whatever the pin count
+  FAIL  1 pins over an empty library cost nothing  [got 1, expected 0]
+  ok    20 new items cost exactly 20 requests with 1 pins
+  ok    every request carries all 1 pins at once
+  ok    refreshing again with nothing new sends nothing
+  ok    one edited title costs exactly one more request
+  FAIL  3 pins over an empty library cost nothing  [got 1, expected 0]
+  ok    20 new items cost exactly 20 requests with 3 pins
+  ok    every request carries all 3 pins at once
+  ok    refreshing again with nothing new sends nothing
+  ok    one edited title costs exactly one more request
+  FAIL  9 pins over an empty library cost nothing  [got 1, expected 0]
+  ok    20 new items cost exactly 20 requests with 9 pins
+  ok    every request carries all 9 pins at once
+  ok    refreshing again with nothing new sends nothing
+  ok    one edited title costs exactly one more request
+
+-- Pins (MUST 4) — what a pin shows
+  ok    a sentence pins
+  FAIL  a new pin judges what is already there, once per item  [got 31, expected 30]
+  ok    a pin lists exactly its found rows
+  ok    a pin's rows carry no mark
+  ok    and are ordered by date, newest first
+  ok    the separator runs under the last row new since the pin was viewed
+  ok    the pin's badge counts what it found
+  ok    leaving the pin empties its badge
+  ok    the tenth pin is refused
+  ok    removing a pin removes it
+  ok    and Undo offers to put it back
+  ok    Undo says what it undid
+  ok    and the pin is back
+
+-- Reader (MUST 5) — marks, saturation and Find by Meaning
+  ok    the article opens
+  ok    its 30 paragraphs are judgeable
+  ok    one request per paragraph, and no more
+  FAIL  three paragraphs are found  [got 0, expected 3]
+  FAIL  three are unsure  [got 0, expected 3]
+  FAIL  three found of thirty is not saturation
+  ok    hits are found and unsure paragraphs in reading order
+  FAIL  the foot says what was found  [got Most of this article is about this., expected 3 found, 3 unsure]
+  ok    headings are shown
+  ok    and never judged
+  FAIL  Find by Meaning takes over the article's marks  [got Optional("on-device machine learning"), expected Optional("autumn balconies watering")]
+  FAIL  and says it is active  [got Optional(false), expected Optional(true)]
+  FAIL  the question lights its own paragraphs  [got 0, expected 24]
+  FAIL  only the paragraphs it has no answer for are sent  [got 0, expected 30]
+  ok    closing the field restores the carried sentence
+  FAIL  with its marks  [got Optional(0), expected Optional(6)]
+  ok    and nothing is sent to get them back
+  ok    20 found of 30 is saturation
+  ok    a saturated article has no hits to walk
+  ok    and one calm sentence
+  ok    with the way out
+  FAIL  the count lives in the help tag  [got Optional("30 of 30 paragraphs"), expected Optional("20 of 30 paragraphs")]
+  ok    no paragraph is tinted
+  ok    a page with no text is unavailable, not empty
+  ok    arrowing every row sends nothing
+  ok    and fetches nothing new
+
+-- Reader (MUST 5) — pre-judging the top results
+  ok    pre-judging is off by default
+  ok    with it off, a settled search sends nothing more
+  ok    three rows are found
+  FAIL  the top three articles are judged ahead, 30 paragraphs each  [30 requests]
+  ok    opening a pre-judged row sends nothing
+  FAIL  and it is lit from the first snapshot  [got Optional(0), expected Optional(3)]
+  ok    which takes under 300 ms
+  skip  the GitHub Terms fixture with the real judge  (--offline)
+
+-- Honesty (MUST 6) — a list with three failures in ten
+  ok    some items were refused
+  ok    a refused item is never listed as if it had been ranked
+  FAIL  the foot counts exactly the refusals  [got Stopped after repeated errors., expected 27 not checked.]
+  ok    and offers to try again
+  ok    in label colour, because it is not mere status
+  ok    "Nothing found" is never said while items are unchecked
+  ok    and never appears in the foot
+  ok    Retry sends exactly the requests that failed
+  ok    and the foot then counts them all
+
+-- Honesty (MUST 6) — an article with three failures in ten
+  ok    some paragraphs were refused
+  ok    each one reads "not checked", never "nothing"
+  ok    and carries no mark
+  FAIL  the foot counts what was checked  [got Stopped after repeated errors., expected 25 of 40 checked.]
+  ok    and offers to try again
+  ok    "Nothing found" is never said about an article with gaps
+
+-- Honesty (MUST 6) — a run that cannot go on
+  ok    a run that keeps failing stops
+  ok    and offers to try again
+  FAIL  it stops rather than asking for all 60 items  [305 attempts]
+  ok    nothing was ranked
+  ok    and nothing claims there was nothing to find
+
+-- Extraction (MUST 7) — a page of known shape
+  ok    every paragraph survives
+  ok    its headings are kept
+  ok    a heading is never judged
+  ok    each paragraph carries the heading above it
+  ok    it counts no images
+  ok    it counts no tables
+
+-- Extraction (MUST 7) — a real saved agreement
+  ok    it yields its paragraphs
+  ok    and never more than the cap
+  ok    within two seconds
+  FAIL  no fragment shorter than 40 characters survives  [paragraph: "Effective date: April 27, 2026"]
+  ok    long passages are split at a sentence end
+  ok    passages carry their section headings
+  ok    the bytes decode before the parser guesses, so there is no mojibake
+  ok    the governing-law paragraph is among them
+  ok    reference and citation lists are dropped
+
+-- Extraction (MUST 7) — what cannot be read says so
+  ok    a paywalled page falls back instead of pretending
+  ok    a page with nothing to read is unavailable, not an empty article
+  ok    a page that will not load says why
+  ok    a video opens in the browser rather than the reader
+  skip  the live readable share  (--offline)
+
+-- Framing (MUST 8) — the measured sentences
+  ok    the item frame is the one EVIDENCE.md measured
+  ok    the passage frame is the one EVIDENCE.md measured
+  ok    a question is recognised as one
+  ok    a question gets the subject-of-the-question frame
+  ok    and still carries the data-not-instructions rule
+  ok    whitespace is collapsed
+  ok    double quotes cannot break the frame
+  ok    a sentence is capped at 200 characters
+  ok    an amount is flagged
+  ok    an exclusion is flagged
+  ok    a date is flagged
+  ok    "sans-serif" is not mistaken for an exclusion
+  ok    an ordinary sentence is not flagged
+  ok    the note is the one the foot shows
+  ok    a framed sentence hashes
+  ok    two sentences share a cache key only when they really are the same sentence
+  ok    a list judgment can never be mistaken for an article judgment
+
+-- Framing (MUST 8) — the bands those frames were tuned to
+  ok    a list calls 0.60 and above found
+  ok    and 0.45 to 0.60 unsure
+  ok    an article calls 0.75 and above found
+  ok    and above 0.25 unsure
+  ok    more than 35% found is saturation
+  ok    and saturation is never decided before 24 passages
+  ok    0.61 is found in a list
+  ok    0.60 is found in a list
+  ok    0.59 is unsure in a list
+  ok    0.44 is nothing in a list
+  ok    0.75 is found in an article
+  ok    0.26 is unsure in an article
+  ok    0.25 is nothing in an article
+  ok    pending carries no probability
+  ok    failed carries no probability
+  ok    stale carries no probability
+  ok    none of them counts as checked
+  ok    only a judged answer counts as checked
+
+-- Framing (MUST 8) — the daily ceiling stops the run
+  ok    the run stops at the ceiling instead of running away
+  ok    and it stops asking
+  ok    the foot says so rather than pretending the rest is nothing
+  ok    a stopped run never claims nothing was found
+  skip  asking many questions at once against the real model  (--offline)
+
+eval: 161 passed, 25 failed, 6 skipped
+  failed: opening an item marks it read
+  failed: the six date formats give six distinct dates
+  failed: listing them ranks nothing and sends nothing
+  failed: checking older judges exactly the 100 items that were left
+  failed: and the foot then counts them all
+  failed: 1 pins over an empty library cost nothing
+  failed: 3 pins over an empty library cost nothing
+  failed: 9 pins over an empty library cost nothing
+  failed: a new pin judges what is already there, once per item
+  failed: three paragraphs are found
+  failed: three are unsure
+  failed: three found of thirty is not saturation
+  failed: the foot says what was found
+  failed: Find by Meaning takes over the article's marks
+  failed: and says it is active
+  failed: the question lights its own paragraphs
+  failed: only the paragraphs it has no answer for are sent
+  failed: with its marks
+  failed: the count lives in the help tag
+  failed: the top three articles are judged ahead, 30 paragraphs each
+  failed: and it is lit from the first snapshot
+  failed: the foot counts exactly the refusals
+  failed: the foot counts what was checked
+  failed: it stops rather than asking for all 60 items
+  failed: no fragment shorter than 40 characters survives

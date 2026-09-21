@@ -31,7 +31,8 @@ enum ExtractionCheck {
 
     /// Every paragraph of a page whose shape we chose must survive, with its heading attached.
     private static func knownShape(_ report: inout CheckReport) async {
-        let shape: [Fixtures.Relevance] = [.found, .nothing, .unsure, .nothing, .found, .nothing, .nothing, .unsure]
+        let shape: [Fixtures.Relevance] = [.found, .nothing, .unsure, .nothing, .found, .nothing, .nothing, .unsure,
+                                           .nothing, .found, .unsure, .nothing, .nothing, .unsure, .found, .nothing]
         let pages = StubPages()
         pages.serve("https://shape.example/article", html: Fixtures.article(title: "A known article", paragraphs: shape))
         let item = Item(sourceID: 1, guid: "shape", url: URL(string: "https://shape.example/article"),
@@ -77,7 +78,9 @@ enum ExtractionCheck {
         report.expect(judgeable.count >= 80, "it yields its paragraphs", detail: "\(judgeable.count) judgeable")
         report.expect(judgeable.count <= 400, "and never more than the cap", detail: "\(judgeable.count)")
         report.expect(elapsed < .seconds(2), "within two seconds", detail: Wait.milliseconds(elapsed))
-        report.expect(judgeable.allSatisfy { $0.text.count >= 40 }, "no fragment shorter than 40 characters survives")
+        let shortest = judgeable.filter { $0.text.count < 40 }
+        report.expect(shortest.isEmpty, "no fragment shorter than 40 characters survives",
+                      detail: shortest.prefix(3).map { "\($0.kind): \"\($0.text)\"" }.joined(separator: " · "))
         report.expect(judgeable.allSatisfy { $0.text.count <= 1_400 }, "long passages are split at a sentence end")
         report.expect(judgeable.contains { !$0.section.isEmpty }, "passages carry their section headings")
         report.expect(!passages.contains { $0.text.contains("â€™") || $0.text.contains("Ã©") },
