@@ -213,6 +213,23 @@ enum SelfCheck {
         report.expectEqual(offline.text, "Offline. Showing what was already checked.", "offline")
         report.expectEqual(limit.text, "Daily limit reached. Resets at midnight.", "daily limit")
         report.expectEqual(failingSource.text, "Couldn't refresh: HTTP 429.", "a selected failing source names its reason")
+
+        // One order, and it is the list foot's: a pin is a ranked list, so what blocks it is said there too.
+        report.expectEqual(try await pinFoot(FakeOptions(keyStatus: .rejected)).text, "TypeSafe rejected this key.",
+                           "a pin's foot says the key was rejected, as a search's does")
+        report.expectEqual(try await pinFoot(FakeOptions(keyStatus: .missing)).text, "Add a key to search.",
+                           "a pin's foot asks for a key")
+        report.expectEqual(try await pinFoot(FakeOptions(scenario: .offline)).text, "Offline. Showing what was already checked.",
+                           "a pin's foot says Beam is offline")
+    }
+
+    /// The same foot under a pin scope, which brings its own sentence.
+    private static func pinFoot(_ options: FakeOptions) async throws -> Foot {
+        let backend = try FakeBackend(options: options)
+        defer { withExtendedLifetime(backend) {} }
+        guard let pin = await currentSidebar(of: backend).pins.first else { return .blank }
+        var list = backend.list(ListRequest(scope: .pin(pin.id))).makeAsyncIterator()
+        return await settled(&list).last?.foot ?? .blank
     }
 
     private static func settledFoot(_ options: FakeOptions, scope: ListScope = .all,

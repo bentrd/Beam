@@ -17,6 +17,9 @@ public struct ReaderPane: View {
     /// `hits` can come to mean another paragraph; the passage is what stays current.
     @State private var currentPassage: Int?
     @State private var pageFocusRequests = 0
+    /// True once the foot hangs on the pane's split-view item. Until then, and in a window with no split view, the
+    /// pane insets a foot of its own.
+    @State private var footIsAccessory = false
 
     /// - Parameters:
     ///   - snapshot: nil means nothing is selected: blank paper and a blank foot.
@@ -34,20 +37,14 @@ public struct ReaderPane: View {
     public var body: some View {
         let hits = ReaderHitState(snapshot: snapshot)
         let isAskOpen = controller.isAskOpen && hits.isArticleOpen
+        let foot = foot(hits, isAskOpen: isAskOpen)
         ReaderPage(snapshot: snapshot, textSize: textSize, commands: commands(hits), controller: controller, actions: actions)
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                ReaderFoot(model: ReaderFootModel(snapshot: snapshot, hits: hits, currentHit: controller.currentHit,
-                                                  isAskOpen: isAskOpen),
-                           isAskOpen: isAskOpen,
-                           askOpeningText: askOpeningText(for: hits.itemID),
-                           askPrefill: controller.askPrefill,
-                           canStep: hits.canNavigate,
-                           onButton: perform,
-                           onAsk: { ask($0, itemID: hits.itemID) },
-                           onCloseAsk: closeAsk,
-                           onStep: { $0 > 0 ? controller.next() : controller.previous() })
-            }
+            // The system's own separator stays hidden while nothing scrolls under the accessory, and the reader's
+            // AppKit scroll view cannot be given the hard scroll-edge effect, so the page keeps its bottom hairline.
+            .overlay(alignment: .bottom) { if footIsAccessory { Divider() } }
+            .safeAreaInset(edge: .bottom, spacing: 0) { if !footIsAccessory { foot } }
             .background(Color(nsColor: ReaderTheme.paper))
+            .background { ReaderFootAccessory(foot: foot) { footIsAccessory = $0 } }
             .onChange(of: hits, initial: true) { old, new in sync(from: old, to: new) }
             .onChange(of: controller.currentHit) { _, hit in
                 currentPassage = hit.flatMap { hits.hits.indices.contains($0) ? hits.hits[$0] : nil }
@@ -55,6 +52,20 @@ public struct ReaderPane: View {
             .onChange(of: hits.isRunning) { wasRunning, isRunning in
                 if wasRunning, !isRunning, let foot = snapshot?.foot { ReaderAnnouncer.announceSettled(foot.text) }
             }
+    }
+
+    private func foot(_ hits: ReaderHitState, isAskOpen: Bool) -> ReaderFoot {
+        ReaderFoot(model: ReaderFootModel(snapshot: snapshot, hits: hits, currentHit: controller.currentHit,
+                                          isAskOpen: isAskOpen),
+                   isAccessory: footIsAccessory,
+                   isAskOpen: isAskOpen,
+                   askOpeningText: askOpeningText(for: hits.itemID),
+                   askPrefill: controller.askPrefill,
+                   canStep: hits.canNavigate,
+                   onButton: perform,
+                   onAsk: { ask($0, itemID: hits.itemID) },
+                   onCloseAsk: closeAsk,
+                   onStep: { $0 > 0 ? controller.next() : controller.previous() })
     }
 
     private func commands(_ hits: ReaderHitState) -> ReaderPage.Commands {

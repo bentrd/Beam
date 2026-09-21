@@ -108,6 +108,10 @@ private struct WindowConfigurator: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             window.tabbingMode = .disallowed
+            // SwiftUI hands the window over with `.fullScreenNone` already set, and the two flags conflict:
+            // keeping both leaves the window not full-screen capable, which disables the menu item, ⌃⌘F and
+            // the green button alike. The unwanted flag has to go before the wanted one can mean anything.
+            window.collectionBehavior.remove(.fullScreenNone)
             window.collectionBehavior.insert(.fullScreenPrimary)
         }
     }

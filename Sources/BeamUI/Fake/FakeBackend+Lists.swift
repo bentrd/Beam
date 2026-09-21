@@ -236,9 +236,11 @@ extension FakeBackend {
     private func foot(for run: ListRun, sentence: String?, rowCount: Int) -> Foot {
         guard !sources.isEmpty else { return .blank }
         let failingSource: Source? = { if case .source(let id) = run.request.scope { return sources.first { $0.id == id && $0.lastError != nil } }; return nil }()
-        let isSearch = sentence != nil && !run.isPinList
+        // There is one order, and it is the list foot's. A pin is a ranked list like a search, so a missing or
+        // rejected key, the daily limit, offline, a stopped run and "N not checked" are said under a pin too.
+        let isRanked = sentence != nil
 
-        if isSearch {
+        if isRanked {
             if status == .missing { return FakeFeet.addKey }
             if status == .rejected { return FakeFeet.keyRejected }
             if run.reachedDailyLimit { return FakeFeet.dailyLimit }
@@ -251,7 +253,8 @@ extension FakeBackend {
             if case .source(let id) = run.request.scope { return FakeFeet.items(rowCount, in: sources.first { $0.id == id }?.title) }
             return FakeFeet.items(rowCount)
         }
-        if isSearch, FakeJudge.asksForExclusionAmountOrDate(sentence) { return FakeFeet.exclusions }
+        // Only a sentence just typed earns the note: a pin's was vetted when it was pinned.
+        if !run.isPinList, FakeJudge.asksForExclusionAmountOrDate(sentence) { return FakeFeet.exclusions }
 
         let covered = run.isPinList ? items.count : min(run.window, items.count)
         let checked = items.prefix(covered).filter { itemChecks[sentence]?[$0.id] != nil }.count

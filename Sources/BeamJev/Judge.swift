@@ -12,7 +12,7 @@ public actor Judge {
     /// - Parameters:
     ///   - keyProvider: asked on every request, so a key added or removed in Settings takes effect at once. Pass `{ provider.key() }` for a `KeyProvider`.
     ///   - maxInFlight: 64 was measured as the knee: 96 items in about a second with no rate-limit errors (EVIDENCE.md).
-    public init(keyProvider: @escaping @Sendable () -> String?, spend: SpendMeter, maxInFlight: Int = 64, client: JevClient = JevClient()) {
+    public init(keyProvider: @escaping @Sendable () -> String?, spend: SpendMeter, maxInFlight: Int = 96, client: JevClient = JevClient()) {
         self.keyProvider = keyProvider
         self.spend = spend
         self.limiter = Limiter(capacity: maxInFlight)

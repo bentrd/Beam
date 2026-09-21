@@ -135,14 +135,18 @@ extension AppModel {
     /// "Remove Pin" or "Remove Source": the File menu item follows the sidebar selection.
     public var removeCommandTitle: String { scope.isPin ? "Remove Pin" : "Remove Source" }
     /// ⌘⌫ is live only while the sidebar has focus, so that everywhere else the key still edits text.
-    public var canRemoveSelection: Bool { focusedPane == .sidebar && scope != .all }
+    /// A removal already under way is not offered again: the sidebar still lists what the backend has just dropped.
+    public var canRemoveSelection: Bool {
+        focusedPane == .sidebar && scope != .all && !mutationsInFlight.contains(.removal(scope))
+    }
     public func removeSelection() { if canRemoveSelection { remove(scope) } }
 
     /// No alert: Undo restores the pin, or the source with its items, until Beam quits.
     public func remove(_ target: ListScope) {
-        guard target != .all else { return }
+        guard target != .all, !mutationsInFlight.contains(.removal(target)) else { return }
         let name = target.isPin ? "Remove Pin" : "Remove Source"
         let wasSelected = target == scope
+        mutationsInFlight.insert(.removal(target))
         Task {
             switch target {
             case .pin(let id): await backend.removePin(id: id)
@@ -150,13 +154,19 @@ extension AppModel {
             case .all: return
             }
             registerUndo(name)
+            mutationsInFlight.remove(.removal(target))
             if wasSelected, scope == target { leaveRemovedScope() }
         }
     }
 
     /// The backend keeps the real undo stack; the window's undo manager only needs to know there is something to undo
     /// and what to call it, so Edit ▸ Undo reads "Undo Remove Pin" and ⌘Z still undoes typing in a field first.
+    ///
+    /// The two stacks have to stay in step, so this registers what the backend reports rather than what the caller
+    /// assumed: an action that found nothing to change pushes nothing, and then nothing is named here either.
+    /// Otherwise ⌘Z would read one action's name and perform another's.
     func registerUndo(_ actionName: String) {
+        guard backend.undoTitle == "Undo " + actionName else { return }
         undoNames.append(actionName)
         if let undoManager { register(actionName, with: undoManager) }
     }
@@ -171,6 +181,7 @@ extension AppModel {
     private func undoLastBackendAction() {
         guard !undoNames.isEmpty else { return }
         undoNames.removeLast()
-        Task { _ = await backend.undo() }
+        // The backend keeps the real stack: when it has nothing left, neither has the window.
+        Task { if await backend.undo() == nil { undoNames.removeAll() } }
     }
 }

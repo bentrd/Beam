@@ -57,6 +57,14 @@ public enum Readability {
 
     public static func extract(html: String, knownTitle: String? = nil, timeBudget: Duration = Readability.timeBudget) throws -> ExtractedArticle {
         guard html.utf8.count <= maximumBytes else { throw ExtractionError.tooLarge(bytes: html.utf8.count) }
+        // Content-Type cannot be trusted: servers that content-negotiate an ActivityPub or API representation
+        // still label it `text/html`, and handed to the parser that JSON becomes one giant paragraph of
+        // `{"@context":…` in the reader. Read the post out of it where it is there, refuse where it is not.
+        switch JSONPage.body(of: html) {
+        case let .fragment(body): return try extractFragment(body, knownTitle: knownTitle)
+        case .notAPage: throw ExtractionError.notAPage
+        case nil: break
+        }
         let deadline = Deadline(budget: timeBudget)
         let signals = PageSignals(html: html)
         let page = try WalkedPage(html: html, deadline: deadline)

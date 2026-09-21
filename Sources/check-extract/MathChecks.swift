@@ -16,6 +16,9 @@ enum MathChecks {
         report.section("A real KaTeX page")
         katexPage(&report)
 
+        report.section("JSON wearing a page's Content-Type")
+        jsonPages(&report)
+
         report.section("Code is shown, and never judged")
         code(&report)
     }
@@ -41,6 +44,12 @@ enum MathChecks {
         check("u &amp;= 1", "u = 1", "an escaped ampersand does not leave 'amp;' behind")
         check(#"\Big( \frac{1}{2} \Big)"#, "( 1/2 )", "sizing commands disappear")
         check(#"\color{red}{x}"#, "x", "a colour command keeps only its content")
+        check(#"\theta_{ij}"#, "θᵢⱼ", "a two-letter subscript converts")
+        check(#"x^{2n}"#, "x²ⁿ", "a two-character power converts")
+        check(#"\frac{\partial f}{\partial z_k}"#, "∂f/∂zₖ", "a subscript inside a fraction converts")
+        // A brace annotation labels the brace, not a power: once the brace is gone the label reads as nonsense.
+        check(#"\overbrace{a+b}^{\text{Repeated terms}}"#, "a+b", "a brace annotation is dropped, not inlined")
+        check(#"\underbrace{x}_{\text{the residual}}"#, "x", "an underbrace label goes the same way")
 
         // The promise that matters most: nothing with a backslash ever reaches the reader.
         let awkward = [#"\wibble{x}"#, #"\frac{\partial^2 f}{\partial x \partial y}"#, #"\left[ \begin{matrix} a \\ b \end{matrix} \right]"#]
@@ -74,6 +83,34 @@ enum MathChecks {
 
         // KaTeX puts the formula in the page twice; only one copy may survive.
         report.expect(!all.contains("x2x^2"), "the presentation copy is not doubled into the text")
+    }
+
+    /// A response that is JSON wearing a page's Content-Type. The header cannot be trusted, so the body is sniffed.
+    private static func jsonPages(_ report: inout CheckReport) {
+        guard let data = Fixture.named("activitypub-json.html")?.data,
+              let article = try? Readability.extract(data: data, httpCharset: "utf-8") else {
+            report.expect(false, "the ActivityPub fixture extracts")
+            return
+        }
+        let body = article.passages.filter(\.isJudgeable)
+        let all = body.map(\.text).joined(separator: " ")
+        report.expect(!all.contains("@context") && !all.contains("activitystreams"),
+                      "no raw JSON reaches the reader", detail: String(all.prefix(70)))
+        report.expect(!all.contains("\\u003C"), "the post's own escapes are decoded, not shown")
+        report.expect(all.contains("NEC V20") || all.contains("8088"),
+                      "the post itself is read out of the JSON", detail: String(all.prefix(90)))
+        report.expect(body.count >= 3, "and split into paragraphs", detail: "\(body.count)")
+
+        // JSON with nothing readable in it is not a page, and must say so rather than showing its keys.
+        let envelope = "{\"status\":\"ok\",\"items\":[{\"id\":1},{\"id\":2}]}"
+        do {
+            _ = try Readability.extract(html: envelope)
+            report.expect(false, "an API envelope is refused")
+        } catch {
+            report.expectEqual("\(error)", "\(ExtractionError.notAPage)", "an API envelope is refused as not a page")
+        }
+        report.expect(JSONPage.body(of: "<!doctype html><p>ordinary</p>") == nil,
+                      "an ordinary page is not mistaken for JSON")
     }
 
     private static func code(_ report: inout CheckReport) {

@@ -51,7 +51,7 @@ enum MenuCheck {
         let everyItem = items(of: main)
         let shown = everyItem.filter { !$0.isHidden }
         let forbidden = ["New Window", "New Tab", "Show Tab Bar", "Show All Tabs", "Merge All Windows", "Move Tab to New Window",
-                         "Writing Tools", "Start Dictation…", "Emoji & Symbols", "AutoFill"]
+                         "Writing Tools", "Start Dictation…", "Emoji & Symbols", "AutoFill", "Delete"]
         for title in forbidden {
             report.expect(!shown.contains { $0.title == title }, "no \"\(title)\" item")
         }

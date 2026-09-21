@@ -110,7 +110,9 @@ struct AddSourcePopover: View {
             switch await model.backend.addSource(candidate) {
             case .added: status = "Added"
             case .alreadyAdded: status = "Already added"
-            case .failed(let reason): status = reason
+            // The four lines of DESIGN.md section 6 are all this panel says: a backend reason is for the log,
+            // never for the one secondary line under the field.
+            case .failed: status = "No feed found at this address"
             }
         }
     }

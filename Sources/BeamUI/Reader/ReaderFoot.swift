@@ -3,9 +3,13 @@ import BeamModels
 import SwiftUI
 
 /// The reader's one-line foot: the status sentence (or the ask field) on the left, the counter slot on the right.
-/// Opaque paper under a hairline, so it reads as the bottom edge of the page rather than as a bar over it.
+/// It reads as the bottom edge of the page rather than as a bar over it.
 struct ReaderFoot: View {
     let model: ReaderFootModel
+    /// True when the foot is a bottom-aligned split-view accessory (DESIGN.md section 2): the system then owns the
+    /// band — it fits it to the window's corners, and the paper behind the pane shows through it — so the foot draws
+    /// no background and no hairline of its own. False in a window with no split view, where it draws both.
+    var isAccessory = false
     let isAskOpen: Bool
     let askOpeningText: String
     let askPrefill: String?
@@ -36,8 +40,8 @@ struct ReaderFoot: View {
         .padding(.vertical, 3)
         // One line is 30 pt. A narrow pane wraps the sentence to two lines and the foot grows; it never truncates.
         .frame(minHeight: 30)
-        .background(Color(nsColor: ReaderTheme.paper))
-        .overlay(alignment: .top) { Divider() }
+        .background { if !isAccessory { Color(nsColor: ReaderTheme.paper) } }
+        .overlay(alignment: .top) { if !isAccessory { Divider() } }
         .animation(Self.swap, value: isAskOpen)
         .animation(Self.swap, value: model)
     }

@@ -48,7 +48,9 @@ extension AppModel {
     }
 
     /// Down in the field. With nothing selected the top row becomes the selection, so the arrow has somewhere to be.
+    /// Reaching into the list is what makes the selected row keep its y position at the next merge.
     public func moveFocusToList() {
+        hasTouchedList = true
         if selectedItemID == nil, let top = rows.first { selectForPreview(top.id) }
         focusRequest = .list
     }

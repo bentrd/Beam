@@ -13,6 +13,7 @@ extension AppModel {
         preferences.lastScope = scope.storageKey
         hasAnnouncedSettle = false
         isAwaitingFirstRows = true
+        hasTouchedList = false
 
         let request = ListRequest(scope: scope, sentence: scope.isPin ? nil : sentence, hidesRead: preferences.hidesReadItems)
         let isRanked = request.sentence != nil || scope.isPin
@@ -74,8 +75,7 @@ extension AppModel {
             selectForPreview(top.id)
         }
         if let top = rows.first {
-            let count = rows.count == 1 ? "1 item" : "\(rows.count.formatted()) items"
-            Announcer.say("\(count). Top: \(top.item.title). Return to read.")
+            Announcer.say("\(ShellCopy.plural(rows.count, "item")). Top: \(top.item.title). Return to read.")
         } else {
             Announcer.say(emptyMessage ?? listFoot.text)
         }
@@ -105,6 +105,7 @@ extension AppModel {
     /// a click opens, except on a row that leaves for the browser, which waits for Return or a double click.
     public func userSelected(_ id: Int64?, byClick: Bool) {
         footOverride = nil
+        hasTouchedList = true
         guard let id else { return deselect() }
         if byClick { open(id, trigger: .click) } else { selectForPreview(id) }
     }
@@ -152,8 +153,11 @@ extension AppModel {
         Task { await backend.setRead(read, itemIDs: [itemID]) }
     }
 
-    /// ⌘K acts on the current list scope, and is undoable.
+    /// ⌘K acts on the current list scope, and is undoable. The sidebar and the rows it reads lag the backend by a
+    /// snapshot, so a sweep already under way counts as done here: a second ⌘K inside that window would find
+    /// nothing left to change, and the window would name an undo the backend never pushed.
     public var canMarkAllRead: Bool {
+        guard !mutationsInFlight.contains(.sweep(scope)) else { return false }
         switch scope {
         case .all: return sidebar.unreadInAll > 0
         case .source(let id): return (sidebar.sources.first { $0.id == id }?.unread ?? 0) > 0
@@ -164,18 +168,24 @@ extension AppModel {
     public func markAllRead() {
         guard canMarkAllRead else { return }
         let scope = scope
+        mutationsInFlight.insert(.sweep(scope))
         Task {
             await backend.markAllRead(in: scope)
             registerUndo("Mark All as Read")
+            mutationsInFlight.remove(.sweep(scope))
         }
     }
 
     /// View ▸ Hide Read Items. Persisted; ignored by the backend while a sentence is active.
+    /// A search and a pin always show read items, so the toggle changes nothing there and the list is left alone:
+    /// asking for it again would scroll it back to its top and announce a list that did not change.
+    /// Leaving the sentence rebuilds the request from the persisted value, so the new setting takes effect then.
     public var hidesReadItems: Bool {
         get { preferences.hidesReadItems }
         set {
             guard newValue != preferences.hidesReadItems else { return }
             preferences.hidesReadItems = newValue
+            guard sentence == nil, !scope.isPin else { return }
             reload()
         }
     }

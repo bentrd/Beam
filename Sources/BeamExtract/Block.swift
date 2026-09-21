@@ -39,9 +39,12 @@ public enum ExtractionError: Error, Equatable, CustomStringConvertible {
     case tooLarge(bytes: Int)
     /// The page took longer than `Readability.timeBudget` to process.
     case timedOut
+    /// The body was JSON, whatever the Content-Type said, and held nothing readable.
+    case notAPage
 
     public var description: String {
         switch self {
+        case .notAPage: return "Not a web page (JSON)"
         case let .tooLarge(bytes): return "The page is too large (\(bytes / 1_048_576) MB)"
         case .timedOut: return "The page took too long to process"
         }

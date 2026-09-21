@@ -29,8 +29,12 @@ enum ShellCopy {
     static let keyUnreachable = "Can't reach TypeSafe. Check your connection."
 
     static func couldNotRefresh(_ reason: String) -> String { "Couldn't refresh: \(reason)" }
-    /// The help tag on a pin whose items are still unchecked after retries.
-    static let notChecked = "Not checked"
+
+    /// Beam's copy is English wherever it is read, so its groupings are: "1,200 items", never "1 200 items".
+    /// The backends pin their own counts the same way, and a spoken count must match the foot beside it.
+    private static let english = Locale(identifier: "en_US")
+    static func number(_ value: Int) -> String { value.formatted(.number.locale(english)) }
+    static func plural(_ count: Int, _ noun: String) -> String { "\(number(count)) \(count == 1 ? noun : noun + "s")" }
 
     /// The words of a foot or empty-state text button when the backend names the action but not its words.
     /// `.checkOlder` has none: its sentence carries the count ("Check 1,200 older"), so only the engine can write it,

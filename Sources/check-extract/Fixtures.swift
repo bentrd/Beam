@@ -22,6 +22,10 @@ struct Fixture {
     }
 
     static let all: [Fixture] = [
+        // A server that content-negotiates ActivityPub JSON and still calls it text/html. The post's HTML is in
+        // the JSON's `content`, so the article is readable; parsing it as markup showed `{"@context":…` instead.
+        Fixture(file: "activitypub-json.html", url: "https://dfarq.homeip.net/nec-v20-cpu-a-bit-of-pep-for-an-xt/", httpCharset: "utf-8",
+                expectation: .article(passages: 20...60, words: 1500...2600)),
         // A maths-heavy post: KaTeX leaves both a rendered copy and the TeX source in the page.
         Fixture(file: "math-katex.html", url: "https://gregorygundersen.com/blog/2018/04/15/backprop/", httpCharset: "utf-8",
                 expectation: .article(passages: 15...40, words: 900...2500)),

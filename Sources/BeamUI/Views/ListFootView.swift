@@ -3,7 +3,10 @@ import SwiftUI
 
 /// The one-line foot under the list. One sentence at a time, 12 pt; plain status is secondary, errors and sentences
 /// with a button are in the label colour. At narrow widths the button drops to a second line: a foot never truncates.
-/// Opaque, with a hairline above: status lives nowhere else.
+///
+/// It draws no background and no hairline of its own: it is a bottom-aligned bar accessory (`safeAreaBar`), so the
+/// system gives it its material and fits it to the window's corners, and the list's hard scroll-edge effect is what
+/// makes it read as opaque. Status lives nowhere else.
 struct ListFootView: View {
     let foot: Foot
     let perform: (FootAction) -> Void
@@ -16,8 +19,6 @@ struct ListFootView: View {
         .font(.system(size: 12))
         .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
         .padding(.horizontal, 16)
-        .background(Color(nsColor: .textBackgroundColor))
-        .overlay(alignment: .top) { Divider() }
         // The settled sentence cross-fades in over 120 ms; the height never changes between states.
         .animation(.easeInOut(duration: 0.12), value: foot)
         .accessibilityElement(children: .contain)

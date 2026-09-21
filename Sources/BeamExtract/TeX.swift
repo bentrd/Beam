@@ -193,6 +193,10 @@ public enum TeX {
     private static func convertScript(marker: String, body: String) -> String {
         let table = marker == "_" ? subscripts : superscripts
         let resolved = symbols(body)                       // `\theta` inside a script becomes θ first
+        // `\overbrace{…}^{\text{Repeated terms}}` labels the brace rather than raising anything to a power. Once
+        // the brace itself is gone the label has nothing to attach to, and inlining it as `^Repeated terms` reads
+        // as nonsense, so a script of several words is dropped as the annotation it is.
+        if resolved.contains(" ") { return "" }
         var mapped = ""
         for character in resolved {
             guard let small = table[character] else { return "\(marker)\(resolved)" }

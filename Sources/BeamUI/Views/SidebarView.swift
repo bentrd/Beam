@@ -24,7 +24,7 @@ struct SidebarView: View {
             }
         }
         .focused(focus, equals: .sidebar)
-        .copyable(selectedFeedURL.map { [$0.absoluteString] } ?? [])
+        .copyable(selectedFeedURL.map { [CopiedLink($0)] } ?? [])
         .dropDestination(for: URL.self) { urls, _ in
             // A URL dropped on the sidebar opens the popover with that address already running.
             guard let url = urls.first else { return false }
@@ -56,33 +56,28 @@ struct SidebarView: View {
 }
 
 /// The sentence, tail-truncated, with the whole of it in the help tag. Not editable.
-/// Items that stay unchecked after retries earn the same warning glyph a long-failing source gets.
+/// A pin row carries no glyph: the warning triangle is the long-failing source's alone, and the foot already says
+/// "31 not checked. Retry" for a pin whose items stayed unchecked.
 private struct PinRow: View {
     let model: AppModel
     let summary: PinSummary
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(summary.pin.sentence).lineLimit(1).truncationMode(.tail)
-            if summary.hasUnchecked {
-                Spacer(minLength: 0)
-                WarningGlyph(help: ShellCopy.notChecked)
-            }
-        }
-        .help(summary.pin.sentence)
-        .badge(summary.newFound)
-        .contextMenu { Button("Remove Pin") { model.remove(.pin(summary.id)) } }
-        .accessibilityLabel(accessibilityLabel)
-        .accessibilityAction(named: "Move Up") { model.movePin(summary.id, by: -1) }
-        .accessibilityAction(named: "Move Down") { model.movePin(summary.id, by: 1) }
+        Text(summary.pin.sentence)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(summary.pin.sentence)
+            .badge(summary.newFound)
+            .contextMenu { Button("Remove Pin") { model.remove(.pin(summary.id)) } }
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityAction(named: "Move Up") { model.movePin(summary.id, by: -1) }
+            .accessibilityAction(named: "Move Down") { model.movePin(summary.id, by: 1) }
     }
 
-    /// "{sentence}, 3 new", then "not checked" where it applies.
+    /// "{sentence}, 3 new".
     private var accessibilityLabel: String {
-        var parts = [summary.pin.sentence]
-        if summary.newFound > 0 { parts.append("\(summary.newFound) new") }
-        if summary.hasUnchecked { parts.append(ShellCopy.notChecked.lowercased()) }
-        return parts.joined(separator: ", ")
+        guard summary.newFound > 0 else { return summary.pin.sentence }
+        return "\(summary.pin.sentence), \(summary.newFound) new"
     }
 }
 

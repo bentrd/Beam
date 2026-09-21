@@ -1,11 +1,17 @@
 import AppKit
 import SwiftUI
 
-/// The toolbar's search field: the stock AppKit `NSSearchField`, so it looks and behaves like every other Mac search field.
-/// It sends whole strings only, keeps no recents, offers no suggestions, and Writing Tools are off.
+/// The toolbar's search field: the stock AppKit `NSSearchField`, so it looks and behaves like every other Mac search
+/// field. It sends whole strings only, keeps no recents, offers no suggestions, and Writing Tools are off.
 ///
 /// Return runs the sentence (or opens a row when the text is unchanged), Down moves to the list, Esc clears.
 /// Return and Esc are left to the input system while there is marked text: AZERTY dead keys produce it.
+///
+/// DESIGN.md section 2 asks for an `NSSearchToolbarItem`, and the window's toolbar belongs to SwiftUI, which keeps
+/// key-value observers on the toolbar it installed, on its items and on the field inside them. Measured on this
+/// macOS: giving the window another toolbar, or giving that item another field, throws inside SwiftUI's own next
+/// update; adding an item behind its toolbar delegate leaves the item in `toolbar.items` and never on screen.
+/// So the field is hosted in the principal item, and the widths section 2 fixes are set where it is used.
 struct SearchToolbarField: NSViewRepresentable {
     @Bindable var model: AppModel
 

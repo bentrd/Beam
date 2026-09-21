@@ -111,7 +111,11 @@ private actor OrderLog {
 func checkJudgeLimit(_ report: inout CheckReport) async {
     report.section("Judge: one limiter for everything")
     let service = FakeService(latency: 1...5)
-    let judge = Judge(keyProvider: { "k" }, spend: SpendMeter(), client: JevClient(transport: service.transport))
+    // The cap is stated here rather than taken from the default, so raising the default cannot quietly weaken
+    // what this check proves: that the limiter holds whatever cap it was given, under cancellation.
+    let cap = 64
+    let judge = Judge(keyProvider: { "k" }, spend: SpendMeter(), maxInFlight: cap,
+                      client: JevClient(transport: service.transport))
     var random = SplitMix64(seed: 0x1D6E)
 
     var tasks: [Task<Judgments, Error>] = []
@@ -126,7 +130,12 @@ func checkJudgeLimit(_ report: inout CheckReport) async {
     for task in tasks where (try? await task.value) != nil { answered += 1 }
     let status = await validation
 
-    report.expect(service.peakInFlight <= 64, "500 judgments with random cancellation never put more than 64 requests in flight", detail: "peak \(service.peakInFlight)")
+    report.expect(service.peakInFlight <= cap,
+                  "500 judgments with random cancellation never exceed the limiter's cap",
+                  detail: "peak \(service.peakInFlight) against a cap of \(cap)")
+    report.expect(service.peakInFlight >= cap / 2,
+                  "and the limiter is actually saturated, so the cap is being tested",
+                  detail: "peak \(service.peakInFlight)")
     report.expect(service.peakInFlight > 32, "and the limiter is not needlessly tight", detail: "peak \(service.peakInFlight)")
     report.expect(answered > 0 && answered < 500 && status == .valid, "\(answered) answered, the rest cancelled; key validation shared the same limiter")
     let idle = await eventually { await judge.load.isIdle }

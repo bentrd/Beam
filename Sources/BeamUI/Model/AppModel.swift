@@ -11,6 +11,9 @@ import SwiftUI
 public final class AppModel {
     /// The two panes SwiftUI focus can name. The search field is AppKit and reports its own focus.
     public enum Pane: Hashable { case sidebar, list }
+    /// An undoable backend action asked for and not yet finished. The snapshots the window reads lag the backend,
+    /// so what is in flight is what keeps ⌘K and ⌘⌫ from being asked twice for work already being done.
+    enum Mutation: Hashable { case sweep(ListScope), removal(ListScope) }
     /// How an item was asked to open: a single click never sends a YouTube row to the browser.
     public enum OpenTrigger { case click, doubleClick, key }
 
@@ -79,8 +82,13 @@ public final class AppModel {
     @ObservationIgnored var hasStarted = false
     @ObservationIgnored var itemToRestore: Int64?
     @ObservationIgnored var hasAnnouncedSettle = false
+    /// True once Ben has reached into the list in this run (a click, an arrow key, Down from the field): from then on
+    /// the selected row keeps its y position when the held rows merge in.
+    @ObservationIgnored var hasTouchedList = false
     /// True from a new list request until its first rows are on screen.
     @ObservationIgnored var isAwaitingFirstRows = false
+    /// Undoable backend actions under way. They are observed, because the File menu greys out what is in flight.
+    var mutationsInFlight: Set<Mutation> = []
 
     public init(backend: BeamBackend, preferences: Preferences? = nil) {
         self.backend = backend

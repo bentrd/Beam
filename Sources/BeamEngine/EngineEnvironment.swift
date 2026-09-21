@@ -28,6 +28,8 @@ public struct EngineEnvironment: Sendable {
     public var spendCeiling: Double
     public var readerReserve: Double
     /// The one global cap on requests in flight, shared by search, pins, the reader and pre-judging.
+    /// 96, which EVIDENCE.md measured against the live service without a single rate-limit refusal. Every wave
+    /// costs about 300 ms, so the cap is what decides how soon a sparse hit in a 300-item library is reached.
     public var maxInFlight: Int
     /// Whether launching fetches every source. Off in checks that want to control when the network is touched.
     public var refreshesOnLaunch: Bool
@@ -46,7 +48,7 @@ public struct EngineEnvironment: Sendable {
                 starters: [CatalogEntry] = Catalog.starters,
                 spendCeiling: Double = SpendMeter.dailyCeiling,
                 readerReserve: Double = SpendMeter.readerReserve,
-                maxInFlight: Int = 64,
+                maxInFlight: Int = 96,
                 refreshesOnLaunch: Bool = true,
                 pinRefresh: Duration? = Windows.pinRefresh,
                 refreshesOnWake: Bool = true,

@@ -20,6 +20,16 @@ enum MainMenu {
         static let autoFill = "AutoFill"
     }
 
+    /// The Edit menu of DESIGN.md section 10 is Undo, Redo, Cut, Copy, Paste, Select All, Find and Speech.
+    /// Dictation and Emoji & Symbols are kept out by the two defaults `main.swift` registers; these two have no
+    /// such switch. AutoFill offers to fill a TypeSafe key from a password manager, which is not a thing Beam asks
+    /// for: the key sheet is the one place a key is typed, once. Delete arrives inside AppKit's pasteboard group
+    /// and does what ⌫ already does in the one or two fields Beam has, under a title section 10 does not list.
+    private static let unlistedEditItems: [(title: String?, action: Selector?)] = [
+        (Title.autoFill, nil),
+        (nil, #selector(NSText.delete(_:))),
+    ]
+
     /// Menus whose separators are ours to tidy. The Window menu is left alone: AppKit fills its tail at display time.
     private static let tidiedMenus = ["File", "Edit", "View"]
 
@@ -33,7 +43,7 @@ enum MainMenu {
         populate(main)
         renameCloseItem(in: main)
         addFullScreenItemIfMissing(to: main)
-        hideAutoFill(in: main)
+        hideUnlistedEditItems(in: main)
         for title in tidiedMenus {
             if let menu = menu(titled: title, in: main) { collapseSeparators(in: menu) }
         }
@@ -91,14 +101,14 @@ enum MainMenu {
         }
     }
 
-    /// The Edit menu of DESIGN.md section 10 is Undo, Redo, Cut, Copy, Paste, Select All, Find and Speech.
-    /// Dictation and Emoji & Symbols are kept out by the two defaults `main.swift` registers; AutoFill has no such
-    /// switch, so it is hidden here. It offers to fill a TypeSafe key from a password manager, which is not a thing
-    /// Beam asks for: the key sheet is the one place a key is typed, once.
-    private static func hideAutoFill(in main: NSMenu) {
+    /// Hides the items AppKit puts in Edit that section 10 does not list. Nothing is removed: a hidden item is
+    /// not drawn, and its action still answers the key that reaches it through the responder chain.
+    private static func hideUnlistedEditItems(in main: NSMenu) {
         guard let edit = menu(titled: "Edit", in: main) else { return }
-        for item in edit.items where item.title == Title.autoFill && item.submenu != nil {
-            item.isHidden = true
+        for item in edit.items {
+            let matchesTitle = unlistedEditItems.contains { $0.title == item.title && item.submenu != nil }
+            let matchesAction = item.action.map { action in unlistedEditItems.contains { $0.action == action } } ?? false
+            if matchesTitle || matchesAction { item.isHidden = true }
         }
     }
 
