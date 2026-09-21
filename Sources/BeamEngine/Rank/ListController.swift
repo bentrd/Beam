@@ -194,15 +194,49 @@ final class ListController {
     }
 
     /// The window, in the order the requests leave: round-robin across sources, so one huge feed cannot hold up
-    /// every other source's first row.
+    /// every other source's first row — and, within that, the items whose own words already echo the sentence
+    /// first.
+    ///
+    /// The order changes nothing about the answer: every item in the window is judged either way, and the list is
+    /// ranked by what the model said. What it changes is when the good rows arrive. Judged in date order a hit can
+    /// sit anywhere in 300 items, so the first paint is whatever happened to be newest; judged this way the first
+    /// paint is drawn from the likeliest candidates. Beam still searches by meaning — a page that shares no words
+    /// with the sentence is judged like any other, just not first.
     private func targets(missing sentences: [FramedSentence], known: [String: [String: Double]]) -> [JudgeTarget<Int64>] {
         guard let current = run, !sentences.isEmpty else { return [] }
-        return Self.roundRobin(Array(current.window))
+        return Self.likeliestFirst(Self.roundRobin(Array(current.window)), matching: sentences)
             .compactMap { item in
                 guard let hash = current.hashes[item.id] else { return nil }
                 guard sentences.contains(where: { known[hash]?[$0.hash] == nil }) else { return nil }
                 return JudgeTarget(id: item.id, textHash: hash, state: item.judgedText)
             }
+    }
+
+    /// A stable reordering that puts items sharing words with a sentence ahead of those that do not.
+    /// Stable, so items of equal overlap keep their round-robin position and one source cannot take the front.
+    static func likeliestFirst(_ items: [Item], matching sentences: [FramedSentence]) -> [Item] {
+        let words = Set(sentences.flatMap { terms(in: $0.sentence.cleaned) })
+        guard words.count >= 2 else { return items }        // one word says too little to order 300 items by
+        struct Ranked { let position: Int; let item: Item; let shared: Int }
+        var ranked: [Ranked] = []
+        ranked.reserveCapacity(items.count)
+        for (position, item) in items.enumerated() {
+            ranked.append(Ranked(position: position, item: item, shared: overlap(item, words)))
+        }
+        ranked.sort { left, right in
+            left.shared == right.shared ? left.position < right.position : left.shared > right.shared
+        }
+        return ranked.map(\.item)
+    }
+
+    private static func overlap(_ item: Item, _ words: Set<String>) -> Int {
+        let judged = item.judgedText.values.joined(separator: " ")
+        return Set(terms(in: judged)).intersection(words).count
+    }
+
+    /// Words worth matching on: three letters or more, lowercased. Short words are in every headline.
+    private static func terms(in text: String) -> [String] {
+        text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count >= 3 }
     }
 
     static func roundRobin(_ items: [Item]) -> [Item] {

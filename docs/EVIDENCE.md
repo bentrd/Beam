@@ -134,3 +134,18 @@ pooled evaluation, 50 relevant pairs. State = `{title, snippet}`.
 - Bare-version titles from release feeds ("v0.30.6") were missed for "on-device ML on Apple Silicon":
   judge release items as "<repo name> <tag>" plus the release-notes snippet.
 - One sentence ("is AI making programmers worse?") could not be labelled from titles alone and was excluded.
+
+## Judging order, and why the first hit was slow (2026-09-21)
+Live search over 300 real items met "settles under 3 s" but missed "first found row under 1.5 s" at 1.84-2.08 s,
+repeatably. The cause was not speed: a typical sentence finds **2-3 items in 300**, and judged in date order a hit
+can sit anywhere in the queue, so most of the corpus had to be judged before the first mark appeared.
+- Raising the one global limiter from 64 to 96 in flight (EVIDENCE measured 96 with no rate-limit refusal) took it
+  to ~1.62 s: better, and still borderline.
+- **Judging the likeliest candidates first** fixed it: within the round-robin, items whose own words share a term
+  with the sentence go out first. Three consecutive live runs now pass, and the run still settles under 3 s.
+- The order changes nothing about the answer. Every item in the window is judged either way and the list is ranked
+  by what the model said; `beam-eval search` asserts the reordering is a permutation (nothing dropped, nothing
+  judged twice), that it is stable, and that a sentence matching nothing leaves the order alone. A one-word
+  sentence does not reorder at all, since one word would hand the front of the queue to a coincidence.
+- Beam still searches by meaning: a page sharing no words with the sentence is judged like any other, just not first.
+  The gain is that the *first paint* is now drawn from the likeliest candidates rather than from whatever was newest.

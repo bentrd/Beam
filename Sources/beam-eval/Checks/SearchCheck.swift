@@ -10,9 +10,44 @@ import Foundation
 enum SearchCheck {
     static let name = "search"
 
+    /// Judging order decides when good rows arrive, never which rows exist. Checked through the engine rather
+    /// than the sorter, because what matters is the order the requests actually left in.
+    private static func judgingOrder(_ report: inout CheckReport) async {
+        report.section("Search (MUST 3) — the likeliest candidates are judged first")
+        let web = StubWeb()
+        web.serve("https://order.example/feed.xml",
+                  Fixtures.rss(title: "Order", site: "https://order.example", count: 120, found: 12, unsure: 12))
+        let jev = StubJev()
+        guard let lab = try? await Lab.offline(starters: [Lab.candidate("Order", "https://order.example/feed.xml")],
+                                               jev: jev, web: web) else {
+            report.expect(false, "an engine over a 120-item library")
+            return
+        }
+        let listed = await lab.search(Fixtures.sentence)
+        let asks = jev.all
+
+        report.expectEqual(asks.count, 120, "every item in the window is judged, whatever the order")
+        let titles = asks.compactMap { $0.state["title"] }
+        report.expectEqual(Set(titles).count, titles.count, "no item is judged twice")
+
+        // The fixture's relevant titles share words with the sentence; they should go out in the first wave.
+        let words = Set(Fixtures.sentence.lowercased().split(separator: " ").map(String.init))
+        func shares(_ title: String) -> Bool {
+            !Set(title.lowercased().split(separator: " ").map(String.init)).intersection(words).isEmpty
+        }
+        let early = titles.prefix(24).filter(shares).count
+        let total = titles.filter(shares).count
+        report.expect(early >= min(total, 12), "the items whose words echo the sentence go out first",
+                      detail: "\(early) of the first 24 asks, \(total) in the library")
+
+        let rows = listed.last?.rows ?? []
+        report.expect(rows.contains { $0.isMarked }, "and the list still finds them")
+    }
+
     static func run(_ report: inout CheckReport, offline: Bool, key: String?) async {
         report.section("Search (MUST 3) — 400 fixture items")
         await overFixtures(&report)
+        await judgingOrder(&report)
         guard !offline else {
             report.skip("search timings on the real web", because: "--offline")
             return
