@@ -119,7 +119,17 @@ enum FixtureChecks {
             let sections = Set(paper.passages.map(\.section))
             report.expect(sections.isSuperset(of: ["Abstract", "1 Introduction", "3.2 Attention", "7 Conclusion"]),
                           "arxiv-html.html: every section of the paper is there, not just the longest")
-            report.expect(paper.passages.contains { $0.kind == .code && $0.text.contains("\\mathrm{Attention}") }, "arxiv-html.html: display equations are TeX, shown as code, never judged")
+            // A display equation is shown as code (monospace, never judged), and its maths is readable: the raw
+            // TeX this used to assert is what the reader must never see, since Beam has no renderer to give it to.
+            let equations = paper.passages.filter { $0.kind == .code }
+            report.expect(!equations.isEmpty, "arxiv-html.html: display equations are kept, shown as code")
+            report.expect(equations.allSatisfy { !$0.isJudgeable }, "arxiv-html.html: a display equation is never judged")
+            report.expect(equations.allSatisfy { !$0.text.contains("\\") && !$0.text.contains("{") },
+                          "arxiv-html.html: no TeX source survives into an equation",
+                          detail: equations.first { $0.text.contains("\\") }.map { String($0.text.prefix(70)) } ?? "")
+            report.expect(equations.contains { $0.text.contains("Attention(Q,K,V)") && $0.text.contains("softmax") && $0.text.contains("√d") },
+                          "arxiv-html.html: the attention equation reads as maths",
+                          detail: equations.first { $0.text.contains("Attention(") }.map { String($0.text.prefix(70)) } ?? "none")
             report.expect(!paper.passages.contains { $0.text.contains("arXiv preprint") }, "arxiv-html.html: the bibliography is dropped")
             report.expect(paper.tables >= 2, "arxiv-html.html: tables are counted (\(paper.tables))")
         }

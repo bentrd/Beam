@@ -30,7 +30,7 @@ enum HTMLPreprocessor {
     static func prepare(_ html: String) -> String {
         var text = replace(comments, in: html, with: " ")
         // MathJax 2 keeps each formula's TeX in a script element; it is the only copy of the formula in the page.
-        text = replace(mathScript, in: text, with: " $1 ")
+        text = replaceTeXScripts(in: text)
         text = replace(opaque, in: text, with: " ")
         text = replaceMath(in: text)
         text = replace(structuralOpen, in: text, with: "<div \(markerAttribute)=\"$1\"")
@@ -43,8 +43,10 @@ enum HTMLPreprocessor {
         return jsonLD.matches(in: html, range: NSRange(location: 0, length: source.length)).map { source.substring(with: $0.range(at: 1)) }
     }
 
-    /// MathML becomes its TeX source (the `alttext` attribute, else the TeX annotation KaTeX embeds): the element's
-    /// own text is presentation markup plus that annotation, which reads as "x2x^2".
+    /// MathML becomes readable Unicode maths. The element's own text is presentation markup plus an annotation,
+    /// which reads as "x2x^2", so the TeX source is taken instead (the `alttext` attribute, else the annotation
+    /// KaTeX embeds) and handed to `TeX.readable`: `\\frac{\\partial f}{\\partial v}` becomes `∂f/∂v`, because the
+    /// reader is text and has no renderer to give the formula to.
     private static func replaceMath(in html: String) -> String {
         let source = html as NSString
         let matches = math.matches(in: html, range: NSRange(location: 0, length: source.length))
@@ -61,7 +63,19 @@ enum HTMLPreprocessor {
             // Wikipedia wraps every formula in {\displaystyle …} and LaTeXML opens display math with it; it says nothing.
             if tex.hasPrefix("{\\displaystyle "), tex.hasSuffix("}") { tex = String(tex.dropFirst(15).dropLast()) }
             tex = tex.replacingOccurrences(of: "\\displaystyle", with: "")
-            result.replaceCharacters(in: match.range, with: " \(tex.trimmingCharacters(in: .whitespaces)) ")
+            result.replaceCharacters(in: match.range, with: " \(TeX.readable(tex)) ")
+        }
+        return result as String
+    }
+
+    /// MathJax 2's `<script type="math/tex">` bodies, converted the same way MathML's annotation is.
+    private static func replaceTeXScripts(in html: String) -> String {
+        let source = html as NSString
+        let matches = mathScript.matches(in: html, range: NSRange(location: 0, length: source.length))
+        guard !matches.isEmpty else { return html }
+        let result = NSMutableString(string: html)
+        for match in matches.reversed() {
+            result.replaceCharacters(in: match.range, with: " \(TeX.readable(source.substring(with: match.range(at: 1)))) ")
         }
         return result as String
     }

@@ -22,6 +22,9 @@ struct Fixture {
     }
 
     static let all: [Fixture] = [
+        // A maths-heavy post: KaTeX leaves both a rendered copy and the TeX source in the page.
+        Fixture(file: "math-katex.html", url: "https://gregorygundersen.com/blog/2018/04/15/backprop/", httpCharset: "utf-8",
+                expectation: .article(passages: 15...40, words: 900...2500)),
         Fixture(file: "blog-willison.html", url: "https://simonwillison.net/2024/Dec/31/llms-in-2024/", httpCharset: "utf-8",
                 expectation: .article(passages: 150...220, words: 5000...7000)),
         Fixture(file: "blog-daringfireball.html", url: "https://daringfireball.net/2025/03/something_is_rotten_in_the_state_of_cupertino", httpCharset: "UTF-8",
