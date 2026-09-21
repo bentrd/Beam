@@ -24,6 +24,8 @@ let package = Package(
         .target(name: "BeamUI", dependencies: ["BeamModels"], path: "Sources/BeamUI",
                 resources: [.copy("FakeData")], swiftSettings: v5),
         .executableTarget(name: "Beam", dependencies: ["BeamUI", "BeamEngine", "BeamModels"], path: "Sources/Beam", swiftSettings: v5),
+        // Shows ReaderPane alone with captured snapshots (`-scene lit|saturated|loading|unavailable|preview`), so the reader can be reviewed by itself.
+        .executableTarget(name: "reader-demo", dependencies: ["BeamUI", "BeamModels"], path: "Sources/reader-demo", swiftSettings: v5),
 
         // Checks (there is no XCTest or Swift Testing here): exit code 0 means green.
         .executableTarget(name: "check-jev", dependencies: ["BeamJev", "BeamModels"], path: "Sources/check-jev", swiftSettings: v5),

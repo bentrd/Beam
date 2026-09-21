@@ -33,7 +33,8 @@ Sources/
   BeamFeeds/           lane C   parsing, resolving, adapters, catalog, refresher         deps: BeamModels
   BeamExtract/         lane D   decoding, readability, passages, article loader          deps: BeamModels
   BeamEngine/          lane E   Rank/, Read/, Engine.swift (the facade the app talks to) deps: all of the above
-  Beam/                lane F   the SwiftUI + AppKit app (created only after DESIGN.md is approved)
+  BeamUI/              UI lanes  views that talk to `BeamBackend` only; `Reader/` belongs to the reader lane, the rest to the shell lane
+  Beam/                          the app executable: wires BeamUI to BeamEngine (or to the fake backend with `-fake YES`)
   check-jev/ check-store/ check-feeds/ check-extract/    one check executable per lane (exit 0 = green)
   beam-eval/           the acceptance suite for PRODUCT.md "V1 MUST" (lane E)
 tooling/               make-app.sh, icon generator
@@ -44,7 +45,15 @@ spikes/                reference experiments
 A lane owns its target folder. Nobody edits another lane's folder; cross-lane needs go through public API.
 Lanes A-D do not depend on each other (Feeds returns values and never persists; Jev's spend meter persists through a small protocol that Store backs later).
 
-## Shared value types (`BeamModels`)
+## The contract (already written: `Sources/BeamModels`)
+
+`Models.swift` (Source, SourceCandidate, CatalogEntry, FeedItem, Item with `judgedText`/`textHash`, Pin, Passage, ArticleContent, Band, Check, **Bands** thresholds, KeyStatus, Hashing),
+`Snapshots.swift` (Foot, SidebarSnapshot, ListRequest, Row, ListSnapshot, ReaderSnapshot), `Backend.swift` (**`BeamBackend`**, the one seam between pixels and everything else),
+`CheckReport.swift` (the assertion harness). **Read these files before writing anything; they are the source of truth and override the sketches below.**
+Every user-facing sentence (feet, empty messages) is produced by the engine, with the exact wording of DESIGN.md section 6, and carried in `Foot`, so `beam-eval` can check the copy and the views stay dumb.
+The UI lanes build against `FakeBackend` (captured real data in `Sources/BeamUI/FakeData`) and never import an engine target. `Sources/BeamUI/Reader/ReaderAPI.swift` is the seam between the two UI lanes.
+
+## Shared value types (sketch; the real ones are in `BeamModels`)
 
 ```swift
 public enum SourceKind: String, Codable { case feed, hackerNews, reddit, arxiv, githubReleases, youtube }
