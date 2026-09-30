@@ -17,19 +17,21 @@ final class StubJev: @unchecked Sendable {
     private var asks: [Ask] = []
     private let answer: @Sendable ([String: String], String) -> Double
     private var fails: @Sendable ([String: String]) -> Bool
+    private let responseGate: ResponseGate?
 
     /// What the answers say they came from: the third part of every cache key.
     let model: String
     /// Input tokens each answer claims, which is what the daily breaker counts.
     let tokens: Int
 
-    init(model: String = "jev-stub-1", tokens: Int = 600,
+    init(model: String = "jev-stub-1", tokens: Int = 600, holdsResponses: Bool = false,
          fails: @escaping @Sendable ([String: String]) -> Bool = { _ in false },
          answer: @escaping @Sendable ([String: String], String) -> Double = StubJev.overlap) {
         self.model = model
         self.tokens = tokens
         self.fails = fails
         self.answer = answer
+        self.responseGate = holdsResponses ? ResponseGate() : nil
     }
 
     /// Turned off by Retry checks: the same request must work the second time.
@@ -38,10 +40,16 @@ final class StubJev: @unchecked Sendable {
     var count: Int { lock.withLock { asks.count } }
     var all: [Ask] { lock.withLock { asks } }
     func reset() { lock.withLock { asks.removeAll() } }
+    func releaseResponses() async { await responseGate?.release() }
 
     /// A client Beam cannot tell from the real one, except that it never waits between retries.
     var client: JevClient {
-        JevClient(transport: { [weak self] request in try self?.answer(request) ?? (Data(), URLResponse()) },
+        JevClient(transport: { [weak self] request in
+            guard let self else { throw URLError(.cancelled) }
+            let response = try self.answer(request)
+            if let gate = self.responseGate { await gate.wait() }
+            return response
+        },
                   pause: { _ in })
     }
 
@@ -94,6 +102,22 @@ final class StubJev: @unchecked Sendable {
 
     static func words(in text: String) -> Set<String> {
         Set(text.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 2 })
+    }
+}
+
+/// Holds the first transport wave until a check has inspected it; later responses complete normally.
+private actor ResponseGate {
+    private var isOpen = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        guard !isOpen else { return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+    func release() {
+        isOpen = true
+        let pending = waiting
+        waiting.removeAll()
+        pending.forEach { $0.resume() }
     }
 }
 

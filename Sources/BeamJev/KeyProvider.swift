@@ -4,78 +4,106 @@ import Security
 /// A Keychain call that failed, with the system's own words for it.
 public struct KeychainError: Error, LocalizedError, Equatable, Sendable {
     public let status: OSStatus
+    public init(status: OSStatus) { self.status = status }
     public var errorDescription: String? {
         (SecCopyErrorMessageString(status, nil) as String?) ?? "Keychain error \(status)"
     }
 }
 
-/// Where the TypeSafe key lives: the login Keychain, under the service "dev.beam.app".
-/// Development builds may instead export `BEAM_KEY` or `TYPESAFE_API_KEY`; the Keychain always wins, so what
-/// the user typed in Settings is what is used. The key is never logged, printed or written anywhere else.
+/// Injectable credential storage. Checks can exercise failed reads, writes and removals without the login Keychain.
+public protocol KeyStoring: Sendable {
+    func read() throws -> String?
+    /// A failed replacement must leave the previous credential intact.
+    func write(_ key: String) throws
+    func remove() throws
+}
+
+/// The TypeSafe credential, stored in the login Keychain under "dev.beam.app".
+/// Debug builds may use BEAM_KEY or TYPESAFE_API_KEY when no Keychain item exists.
+/// Release builds use only the Keychain unless an environment is explicitly injected by a check.
 public final class KeyProvider: @unchecked Sendable {
     public static let keychainService = "dev.beam.app"
-    private static let account = "typesafe-api-key"
     private static let environmentNames = ["BEAM_KEY", "TYPESAFE_API_KEY"]
 
-    private let service: String
-    private let environment: [String: String]
+    public static var developmentEnvironment: [String: String] {
+        #if DEBUG
+        ProcessInfo.processInfo.environment
+        #else
+        [:]
+        #endif
+    }
 
+    private let storage: any KeyStoring
+    private let environment: [String: String]
     private enum Lookup {
         case unknown
         case known(String?)
+        case failed(any Error)
     }
     private let lock = NSLock()
     private var lookup = Lookup.unknown
 
-    /// `service` and `environment` are injectable so the checks never touch the real item.
-    public init(service: String = KeyProvider.keychainService, environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.service = service
+    public init(service: String = KeyProvider.keychainService,
+                environment: [String: String] = KeyProvider.developmentEnvironment,
+                storage: (any KeyStoring)? = nil) {
+        self.storage = storage ?? KeychainStorage(service: service)
         self.environment = environment
     }
 
-    /// The key to use now, or nil. Read once and remembered: the judge asks before every request, and a Keychain
-    /// round trip for each of 300 of them is time taken from the first result. A Keychain that refuses
-    /// (the user declined the system prompt) reads as "no key" for the same reason: asking again would prompt 300 times.
-    public func key() -> String? {
+    /// Convenience for the judge. Failed Keychain access never silently switches to an environment credential.
+    public func key() -> String? { try? readKey() }
+
+    /// Reads once and remembers both the result and any failure, avoiding repeated system permission prompts.
+    /// Callers that show connection status use this method so Keychain errors remain visible.
+    public func readKey() throws -> String? {
         lock.lock()
         defer { lock.unlock() }
-        if case let .known(key) = lookup { return key }
-        let key = (try? readKeychain()) ?? environmentKey()
-        lookup = .known(key)
-        return key
+        switch lookup {
+        case let .known(key): return key
+        case let .failed(error): throw error
+        case .unknown: break
+        }
+        do {
+            let key = try storage.read() ?? environmentKey()
+            lookup = .known(key)
+            return key
+        } catch {
+            lookup = .failed(error)
+            throw error
+        }
     }
 
-    /// Stores the key, replacing any other. An empty key removes it, as clearing the Settings field does.
+    /// Replaces the credential atomically. The cache changes only after a successful write.
     public func set(_ key: String) throws {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return try remove() }
         lock.lock()
         defer { lock.unlock() }
-        // Delete then add, not update: the new item belongs to this build, so a rebuilt app is not asked for permission to change it.
-        try deleteItem()
-        var item = query
-        item[kSecValueData] = Data(trimmed.utf8)
-        item[kSecAttrLabel] = "Beam TypeSafe key"
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError(status: status) }
+        try storage.write(trimmed)
         lookup = .known(trimmed)
     }
 
-    /// Removes the stored key. A development build then falls back to its environment key, if it has one.
+    /// Removes the stored credential. Explicit development environments may remain connected afterward.
     public func remove() throws {
         lock.lock()
         defer { lock.unlock() }
-        try deleteItem()
+        try storage.remove()
         lookup = .known(environmentKey())
     }
 
-    // MARK: Keychain
+    private func environmentKey() -> String? {
+        Self.environmentNames.compactMap { environment[$0]?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+}
 
+private struct KeychainStorage: KeyStoring {
+    let service: String
     private var query: [CFString: Any] {
-        [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: Self.account]
+        [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: "typesafe-api-key"]
     }
 
-    private func readKeychain() throws -> String? {
+    func read() throws -> String? {
         var item = query
         item[kSecReturnData] = true
         item[kSecMatchLimit] = kSecMatchLimitOne
@@ -83,16 +111,25 @@ public final class KeyProvider: @unchecked Sendable {
         let status = SecItemCopyMatching(item as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw KeychainError(status: status) }
-        guard let data = result as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty else { return nil }
+        guard let data = result as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty else {
+            throw KeychainError(status: errSecDecode)
+        }
         return key
     }
 
-    private func deleteItem() throws {
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
+    func write(_ key: String) throws {
+        let attributes: [CFString: Any] = [kSecValueData: Data(key.utf8), kSecAttrLabel: "Beam TypeSafe key"]
+        let update = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        if update == errSecSuccess { return }
+        guard update == errSecItemNotFound else { throw KeychainError(status: update) }
+        var item = query
+        attributes.forEach { item[$0.key] = $0.value }
+        let status = SecItemAdd(item as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError(status: status) }
     }
 
-    private func environmentKey() -> String? {
-        Self.environmentNames.compactMap { environment[$0] }.first { !$0.isEmpty }
+    func remove() throws {
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw KeychainError(status: status) }
     }
 }

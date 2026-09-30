@@ -27,12 +27,23 @@ struct BeamApp: App {
 
     private static func makeModel() -> AppModel {
         do {
-            let model = AppModel(backend: try BackendFactory.make())
+            let reviewWelcome = UserDefaults.standard.bool(forKey: "showWelcome")
+            let model = AppModel(backend: try BackendFactory.make(),
+                                 offersWelcome: !UserDefaults.standard.bool(forKey: "fake") || reviewWelcome,
+                                 forcesWelcome: reviewWelcome)
             MenuCheck.runIfAsked(for: model)
             return model
         } catch {
-            // Without a backend there is nothing to show; say why on the way out instead of opening an empty window.
             FileHandle.standardError.write(Data("Beam cannot start: \(error)\n".utf8))
+            // A Finder launch has no terminal: make a library failure visible and leave the user's data intact.
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApp.activate()
+            let alert = NSAlert()
+            alert.messageText = "Beam couldn't open your library"
+            alert.informativeText = "\(error.localizedDescription)\n\nYour library is in ~/Library/Application Support/Beam. Check that this folder is writable, then reopen Beam."
+            alert.alertStyle = .critical
+            alert.addButton(withTitle: "Quit")
+            alert.runModal()
             exit(EXIT_FAILURE)
         }
     }

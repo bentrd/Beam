@@ -84,6 +84,7 @@ enum ReaderSnapshotMaker {
         switch context.keyStatus {
         case .missing: return Feet.addKey
         case .rejected: return Feet.keyRejected
+        case .storageError: return Feet.keyStorageError
         case .valid, .unreachable: break
         }
         switch run.outcome {

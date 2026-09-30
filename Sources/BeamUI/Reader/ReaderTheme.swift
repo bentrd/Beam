@@ -6,9 +6,9 @@ enum ReaderTheme {
     /// Paper. The scroll view, the foot and the body veil all use it so the pane reads as one sheet.
     static let paper = NSColor.textBackgroundColor
 
-    /// #FFD60A, the one hit colour. The alpha carries the state (resting or current) and the fade.
-    static func hitFill(alpha: CGFloat) -> NSColor {
-        NSColor(srgbRed: 1.0, green: 0.839, blue: 0.039, alpha: alpha)
+    /// The selected hue; alpha carries resting/current state and the fade.
+    static func hitFill(alpha: CGFloat, color: HighlightColor = .yellow) -> NSColor {
+        palette(color).fill.withAlphaComponent(alpha)
     }
 
     /// Resting and current tint strengths. Dark values come from the owner's review of the mock (DESIGN.md section 11):
@@ -19,11 +19,28 @@ enum ReaderTheme {
         return resting + (current - resting) * emphasis
     }
 
-    /// #9A6B00 on light paper (about 4.7:1), #FFE066 on dark paper.
-    /// The one colour Beam draws itself: the reader's bars and strip marks, and the list's row mark.
-    static let hitInk = NSColor(name: nil) { appearance in
-        isDark(appearance) ? NSColor(srgbRed: 1.0, green: 0.878, blue: 0.40, alpha: 1)
-                           : NSColor(srgbRed: 0.604, green: 0.420, blue: 0.0, alpha: 1)
+    /// Dark ink on light paper and light ink on dark paper keep the bars, strip and list marks readable.
+    static func hitInk(_ color: HighlightColor = .yellow) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let colors = palette(color)
+            return isDark(appearance) ? colors.darkInk : colors.lightInk
+        }
+    }
+
+    private struct Palette { let fill: NSColor; let lightInk: NSColor; let darkInk: NSColor }
+
+    private static func palette(_ color: HighlightColor) -> Palette {
+        func rgb(_ hex: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,
+                    blue: CGFloat(hex & 255) / 255, alpha: 1)
+        }
+        switch color {
+        case .yellow: return Palette(fill: rgb(0xFFD60A), lightInk: rgb(0x9A6B00), darkInk: rgb(0xFFE066))
+        case .green: return Palette(fill: rgb(0x34C759), lightInk: rgb(0x28733B), darkInk: rgb(0x82E599))
+        case .blue: return Palette(fill: rgb(0x0A84FF), lightInk: rgb(0x1F5FAD), darkInk: rgb(0x83BBFF))
+        case .purple: return Palette(fill: rgb(0xAF52DE), lightInk: rgb(0x7E3FAC), darkInk: rgb(0xD5A1F4))
+        case .pink: return Palette(fill: rgb(0xFF2D55), lightInk: rgb(0xA72D58), darkInk: rgb(0xFF9FBD))
+        }
     }
 
     static func isDark(_ appearance: NSAppearance) -> Bool {
@@ -56,18 +73,23 @@ enum ReaderContrast {
     static func settledRail(raised: Bool) -> NSColor { raised ? .labelColor : .secondaryLabelColor }
 }
 
-/// A yellow system highlight would vanish on a yellow tint, so the reader then selects in the unemphasised grey.
+/// A system selection with the same hue as the passage tint uses neutral grey so selected text remains distinct.
 enum ReaderSelection {
-    static var attributes: [NSAttributedString.Key: Any] {
-        let background: NSColor = isYellow(.selectedTextBackgroundColor) ? .unemphasizedSelectedTextBackgroundColor : .selectedTextBackgroundColor
+    static func attributes(highlightColor: HighlightColor) -> [NSAttributedString.Key: Any] {
+        let tint = ReaderTheme.hitFill(alpha: 1, color: highlightColor)
+        let background: NSColor = clashes(.selectedTextBackgroundColor, with: tint) ? .unemphasizedSelectedTextBackgroundColor : .selectedTextBackgroundColor
         return [.backgroundColor: background]
     }
 
-    /// Hue between orange-yellow and yellow-green, with enough saturation to be a colour at all.
+    private static func clashes(_ color: NSColor, with tint: NSColor) -> Bool {
+        guard let selected = color.usingColorSpace(.sRGB), let highlight = tint.usingColorSpace(.sRGB) else { return false }
+        let distance = abs(selected.hueComponent - highlight.hueComponent)
+        return selected.saturationComponent > 0.15 && min(distance, 1 - distance) < 0.09
+    }
+
+    /// The shell's link treatment still recognises a yellow system accent independently of the chosen palette.
     static func isYellow(_ color: NSColor) -> Bool {
         guard let rgb = color.usingColorSpace(.sRGB) else { return false }
-        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
-        rgb.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
-        return saturation > 0.15 && (0.10...0.20).contains(hue)
+        return rgb.saturationComponent > 0.15 && (0.10...0.20).contains(rgb.hueComponent)
     }
 }

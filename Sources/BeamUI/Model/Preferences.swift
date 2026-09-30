@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// What Beam remembers about how its owner likes the window, kept in `UserDefaults`.
-/// Not settings in the Settings-window sense: these change from the View menu and by dragging.
+/// Appearance changes in Settings; reading and window preferences also change from the View menu and by dragging.
 @MainActor @Observable
 public final class Preferences {
     /// The eight reader sizes of DESIGN.md section 3, owned by the reader (`ReaderTextSize`).
@@ -15,6 +15,8 @@ public final class Preferences {
     private enum Key {
         static let textSizeStep = "textSizeStep", hidesReadItems = "hidesReadItems", sidebarWidth = "sidebarWidth"
         static let lastScope = "lastScope", lastItem = "lastItem"
+        static let hasCompletedWelcome = "hasCompletedWelcome"
+        static let highlightColor = "highlightColor"
     }
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -22,6 +24,9 @@ public final class Preferences {
     public var textSizeStep: Int { didSet { defaults.set(textSizeStep, forKey: Key.textSizeStep) } }
     /// View ▸ Hide Read Items.
     public var hidesReadItems: Bool { didSet { defaults.set(hidesReadItems, forKey: Key.hidesReadItems) } }
+    /// Connecting or choosing the plain reader dismisses first-launch setup for future launches.
+    public var hasCompletedWelcome: Bool { didSet { defaults.set(hasCompletedWelcome, forKey: Key.hasCompletedWelcome) } }
+    public var highlightColor: HighlightColor { didSet { defaults.set(highlightColor.rawValue, forKey: Key.highlightColor) } }
     /// Written while the owner drags the divider and read once at launch, so it is not observed:
     /// feeding it back into the split view during layout would make the sidebar's table re-enter itself.
     @ObservationIgnored public var sidebarWidth: Double { didSet { defaults.set(sidebarWidth, forKey: Key.sidebarWidth) } }
@@ -34,6 +39,8 @@ public final class Preferences {
         let step = defaults.object(forKey: Key.textSizeStep) as? Int ?? Self.standardTextSizeStep
         textSizeStep = min(max(step, 0), Self.textSizes.count - 1)
         hidesReadItems = defaults.bool(forKey: Key.hidesReadItems)
+        hasCompletedWelcome = defaults.bool(forKey: Key.hasCompletedWelcome)
+        highlightColor = defaults.string(forKey: Key.highlightColor).flatMap(HighlightColor.init(rawValue:)) ?? .yellow
         let width = defaults.object(forKey: Key.sidebarWidth) as? Double ?? 220
         sidebarWidth = min(max(width, Self.sidebarWidths.lowerBound), Self.sidebarWidths.upperBound)
         lastScope = defaults.string(forKey: Key.lastScope)

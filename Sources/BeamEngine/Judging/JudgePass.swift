@@ -40,6 +40,7 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
     let cache: JudgmentCache
     let models: ModelRegistry
     let purpose: SpendMeter.Purpose
+    let maxInFlight: Int
     let now: @Sendable () -> Date
 
     /// What one request came back with.
@@ -117,7 +118,8 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
         let state = State()
 
         await withTaskGroup(of: Bool.self) { group in
-            for (position, ask) in asked.enumerated() {
+            func enqueue(_ position: Int, into group: inout TaskGroup<Bool>) {
+                let ask = asked[position]
                 group.addTask {
                     // Checked here rather than before the group: ten failures may have landed while this one queued.
                     guard await state.shouldStop == false else { return true }
@@ -125,11 +127,21 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
                                                answered: answered, failed: failed)
                 }
             }
+            // Swift may start child tasks in any order. Submit only the next bounded wave, so candidates
+            // from the back of a large library cannot leap ahead of the sorted work waiting at the front.
+            var next = min(max(1, maxInFlight), asked.count)
+            for position in 0..<next { enqueue(position, into: &group) }
             // A run that has stopped takes its queue with it. The rest cannot succeed where ten in a row failed,
             // and every one of them would otherwise still be sent, retried five times, and waited for.
-            for await mustStop in group where mustStop {
-                group.cancelAll()
-                break
+            while let mustStop = await group.next() {
+                if mustStop {
+                    group.cancelAll()
+                    break
+                }
+                if next < asked.count {
+                    enqueue(next, into: &group)
+                    next += 1
+                }
             }
         }
         await cache.flush()
@@ -162,6 +174,7 @@ struct JudgePass<ID: Hashable & Sendable>: Sendable {
         } catch is CancellationError {
             return await state.end(.cancelled)
         } catch let error as JevError {
+            if Task.isCancelled { return await state.end(.cancelled) }
             let hasEnded: Bool
             switch error {
             case .missingKey: hasEnded = await state.end(.missingKey)

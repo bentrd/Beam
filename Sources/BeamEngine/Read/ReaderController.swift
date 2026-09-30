@@ -13,6 +13,7 @@ final class ReaderController {
     private let context: EngineContext
     private var run: ReaderRun?
     private var openContinuation: AsyncStream<ReaderSnapshot>.Continuation?
+    private var openingTask: Task<Void, Never>?
     private var throttle: SnapshotThrottle!
     private var epoch = 0
 
@@ -29,7 +30,10 @@ final class ReaderController {
         openContinuation = continuation
         epoch += 1
         let epoch = self.epoch
-        Task { [weak self] in await self?.begin(itemID: itemID, carrying: sentence, continuation: continuation, epoch: epoch) }
+        openingTask = Task { [weak self] in
+            guard let self else { return }
+            await self.begin(itemID: itemID, carrying: sentence, continuation: continuation, epoch: epoch)
+        }
         return stream
     }
 
@@ -59,6 +63,8 @@ final class ReaderController {
     }
 
     func close() {
+        openingTask?.cancel()
+        openingTask = nil
         run?.task?.cancel()
         run?.continuation.finish()
         openContinuation?.finish()
@@ -66,6 +72,13 @@ final class ReaderController {
         throttle.cancel()
         run = nil
         epoch += 1
+    }
+
+    /// Keep readable text on screen while stopping requests from the previous credential.
+    /// A page already loading finishes normally and consults the new key status before it is judged.
+    func keyChanged() {
+        guard run?.phase == .ready else { return }
+        startJudging()
     }
 
     /// The article the reader is showing, for the engine's own bookkeeping.
@@ -110,6 +123,9 @@ final class ReaderController {
     /// Reopens the same article from scratch: Retry on "Beam couldn't get the article text."
     private func reopen() {
         guard let current = run else { return }
+        openingTask?.cancel()
+        openingTask = nil
+        run?.task?.cancel()
         let itemID = current.itemID
         let item = current.item
         epoch += 1

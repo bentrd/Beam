@@ -17,6 +17,7 @@ func runEval() async -> Int32 {
     let key = CheckEnvironment.key
 
     let checks: [(name: String, run: (inout CheckReport, Bool, String?) async -> Void)] = [
+        (AuthenticationCheck.name, AuthenticationCheck.run),
         (ColdStartCheck.name, ColdStartCheck.run),
         (SourcesCheck.name, SourcesCheck.run),
         (SearchCheck.name, SearchCheck.run),

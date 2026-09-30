@@ -61,6 +61,9 @@ final class ListController {
         start()
     }
 
+    /// Replace the credential without leaving requests queued with the old account's key.
+    func keyChanged() { retry() }
+
     /// New or changed items arrived. A run in flight is left alone and reloads when it settles: a refresh must
     /// never cancel the search the user is watching.
     func reload() {

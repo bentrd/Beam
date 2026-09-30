@@ -11,6 +11,8 @@ enum SelfCheck {
         Task { @MainActor in
             var report = CheckReport("ui-shell")
             do {
+                try await checkConnection(&report)
+                checkHighlightPreferences(&report)
                 try await checkStreamingPolicy(&report)
                 try await checkLists(&report)
                 try await checkReader(&report)
@@ -29,7 +31,68 @@ enum SelfCheck {
         dispatchMain()
     }
 
+    // MARK: Connection and setup
+
+    private static func checkConnection(_ report: inout CheckReport) async throws {
+        report.section("First launch and TypeSafe connection")
+        let suiteName = "Beam.ConnectionCheck.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = Preferences(defaults: defaults)
+        let keyless = try FakeBackend(options: FakeOptions(keyStatus: .missing))
+        let firstLaunch = AppModel(backend: keyless, preferences: preferences)
+        await firstLaunch.loadKeyStatus()
+        report.expect(firstLaunch.isKeySheetPresented && firstLaunch.isWelcomeKeySheet, "first launch welcomes a keyless reader")
+        report.expectEqual(keyless.keyValidationAttempts, 0, "opening setup sends no validation request")
+        firstLaunch.cancelKeySheet()
+        report.expect(!firstLaunch.isKeySheetPresented && preferences.hasCompletedWelcome, "choosing the reader dismisses and remembers setup")
+        let laterLaunch = AppModel(backend: keyless, preferences: Preferences(defaults: defaults))
+        await laterLaunch.loadKeyStatus()
+        report.expect(!laterLaunch.isKeySheetPresented, "the next launch respects the reader choice")
+        let welcomeReview = AppModel(backend: keyless, preferences: Preferences(defaults: defaults), forcesWelcome: true)
+        await welcomeReview.loadKeyStatus()
+        report.expect(welcomeReview.isKeySheetPresented && welcomeReview.isWelcomeKeySheet, "the review flag can stage welcome without clearing saved preferences")
+        welcomeReview.cancelKeySheet()
+
+        let designModel = AppModel(backend: keyless, preferences: Preferences(defaults: defaults), offersWelcome: false)
+        await designModel.loadKeyStatus()
+        report.expect(!designModel.isKeySheetPresented, "captured design mode remains free of setup")
+        designModel.fieldText = "  models   on a laptop  "
+        designModel.submitSearch()
+        report.expect(designModel.isKeySheetPresented && !designModel.isWelcomeKeySheet && designModel.sentence == nil,
+                      "a keyless submitted search waits for a connection")
+        report.expectEqual(await designModel.setKey("reject-demo"), .rejected, "a rejected candidate reports its failure")
+        report.expect(designModel.keyStatus == .missing && designModel.isKeySheetPresented && designModel.sentence == nil,
+                      "rejection leaves setup open and does not run the waiting search")
+        report.expectEqual(await designModel.setKey("offline-demo"), .unreachable, "an unreachable service reports its failure")
+        report.expectEqual(designModel.keyStatus, .missing, "a network failure does not create a saved connection")
+        report.expectEqual(await designModel.setKey("keychain-demo"), .storageError("The Keychain is locked."), "storage failure reports its cause")
+        report.expect(designModel.keyStatus == .missing && designModel.isKeySheetPresented, "storage failure keeps the keyless reader usable")
+        report.expectEqual(await designModel.setKey("demo-key"), .valid, "a validated and saved key connects")
+        report.expect(!designModel.isKeySheetPresented && designModel.keyStatus == .valid, "successful connection closes setup")
+        report.expectEqual(designModel.sentence ?? "", "models on a laptop", "the waiting search runs after a successful connection")
+        report.expectEqual(await designModel.setKey("reject-replacement"), .rejected, "a rejected replacement remains an error")
+        report.expectEqual(designModel.keyStatus, .valid, "a failed replacement preserves the working connection")
+        report.expectEqual(await designModel.setKey(nil), .missing, "explicit disconnect removes the connection")
+        report.expectEqual(designModel.keyStatus, .missing, "disconnect returns to the plain reader")
+    }
+
     // MARK: Streaming policy
+
+    private static func checkHighlightPreferences(_ report: inout CheckReport) {
+        report.section("Highlight color preferences")
+        let suiteName = "Beam.HighlightCheck.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = Preferences(defaults: defaults)
+        report.expectEqual(preferences.highlightColor, .yellow, "a fresh reader uses yellow highlights")
+        for color in HighlightColor.allCases {
+            preferences.highlightColor = color
+            report.expectEqual(Preferences(defaults: defaults).highlightColor, color, "\(color.title) survives relaunch")
+        }
+        defaults.set("unknown-future-color", forKey: "highlightColor")
+        report.expectEqual(Preferences(defaults: defaults).highlightColor, .yellow, "an unknown saved palette safely falls back to yellow")
+    }
 
     private static func checkStreamingPolicy(_ report: inout CheckReport) async throws {
         report.section("List streaming (DESIGN.md section 5)")

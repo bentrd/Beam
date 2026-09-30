@@ -12,6 +12,7 @@ struct ItemRowView: View {
     let isFresh: Bool
 
     @Environment(\.backgroundProminence) private var backgroundProminence
+    @Environment(\.beamHighlightColor) private var highlightColor
     @State private var hasAppeared = false
 
     var body: some View {
@@ -47,7 +48,7 @@ struct ItemRowView: View {
 
     /// The mark is `hitInk` at full strength, and takes the selected text colour on an emphasised selection.
     private var markColor: Color {
-        backgroundProminence == .increased ? Color(nsColor: .alternateSelectedControlTextColor) : Color(nsColor: ReaderTheme.hitInk)
+        backgroundProminence == .increased ? Color(nsColor: .alternateSelectedControlTextColor) : Color(nsColor: ReaderTheme.hitInk(highlightColor))
     }
 
     /// "Hacker News · 2h"; with no date the source stands alone.

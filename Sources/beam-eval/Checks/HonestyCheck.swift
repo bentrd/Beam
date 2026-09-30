@@ -20,9 +20,9 @@ enum HonestyCheck {
     }
 
     /// Every tenth item, by a stable share of them, refuses to be judged.
-    private static func failsThreeInTen(_ state: [String: String]) -> Bool {
+    nonisolated private static func failsThreeInTen(_ state: [String: String]) -> Bool {
         let title = state["title"] ?? state["passage"] ?? ""
-        return abs(title.hashValue) % 10 < 3
+        return title.hashValue.magnitude % 10 < 3
     }
 
     private static func lists(_ report: inout CheckReport) async {

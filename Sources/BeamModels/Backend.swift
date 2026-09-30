@@ -29,7 +29,8 @@ public enum PinOutcome: Sendable {
 public protocol BeamBackend: AnyObject {
     // Key, privacy, spend
     func keyStatus() async -> KeyStatus
-    /// nil or empty removes the key. Validates before storing; returns the resulting status.
+    /// nil or empty removes the key. Validates a candidate before storing; returns the attempt's outcome.
+    /// A failed attempt preserves the current connection; read keyStatus() for the active credential's status.
     func setKey(_ key: String?) async -> KeyStatus
     func dollarsToday() async -> Double
     /// Settings ▸ "Light up top results before I open them". Off by default.

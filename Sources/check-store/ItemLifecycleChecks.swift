@@ -30,12 +30,22 @@ func checkItemLifecycle(_ report: inout CheckReport) async throws {
     report.expectEqual(committed, 5, "the connection is usable afterwards: the failed transaction was closed")
     report.expectEqual(try await database.itemCount(), 5, "and a successful transaction{} commits")
 
-    // An edit to the content or the link invalidates the cached article; an edit to the title does not.
+    // Content or link edits invalidate the cached article; title edits preserve its body with the new context.
     let items = try await database.newestItems(limit: 5)
-    let article = ArticleContent.ready(passages: [Passage(kind: .paragraph, text: "Body")], images: 0, tables: 0)
+    let article = ArticleContent.ready(passages: [Passage(kind: .paragraph, text: "Body", article: items[0].title),
+                                                 Passage(kind: .paragraph, text: "Page body", article: "The page's own title")], images: 0, tables: 0)
     for item in items.prefix(2) { try await database.putArticle(article, itemID: item.id, fetched: now) }
     _ = try await database.upsertItems([Fixtures.feedItem(1, title: "Retitled"), Fixtures.feedItem(2, content: "<p>Rewritten</p>")], sourceID: sourceID, repoName: nil, now: now)
     report.expectTrue(try await database.article(itemID: items[0].id) != nil, "a retitled item keeps its cached article")
+    if let cached = try await database.article(itemID: items[0].id), case let .ready(passages, _, _) = cached.content {
+        report.expectEqual(passages[0].article, "Retitled", "its passages use the current feed title as judgment context")
+        report.expect(passages[0].textHash != Passage(kind: .paragraph, text: "Body", article: items[0].title).textHash,
+                      "so retitling invalidates the old passage judgment")
+        report.expectEqual(passages[1].article, "The page's own title", "a title supplied by the original page stays intact")
+        report.expectEqual(try await database.article(itemID: items[0].id)?.fetched, now, "retitling preserves the extraction age")
+    } else {
+        report.expect(false, "a retitled article keeps its extracted passages")
+    }
     report.expectTrue(try await database.article(itemID: items[1].id) == nil, "an item whose content changed loses its cached article")
 
     // Purge: older than a year, and gone from its feed for as long.

@@ -26,7 +26,8 @@ final class EngineContext {
     /// What Beam believes about the key right now. A run that is refused updates it, so the next foot is right.
     var keyStatus: KeyStatus = .missing
     /// True while sources are being fetched: an empty list then says "Getting your sources" rather than "No items yet."
-    var isRefreshing = false
+    var feedRefreshesInFlight = 0
+    var isRefreshing: Bool { feedRefreshesInFlight > 0 }
 
     init(database: Database, judge: Judge, spend: SpendMeter, cache: JudgmentCache, models: ModelRegistry,
          articles: ArticleLoader, maxInFlight: Int, now: @escaping @Sendable () -> Date) {
@@ -47,7 +48,12 @@ final class EngineContext {
     /// Whether a request is worth sending. A missing or rejected key is a state of the app: trying again cannot
     /// change it, and Beam must send nothing at all without a key. Everything else is worth one attempt, so that
     /// a Mac that was offline a minute ago is not told it still is.
-    var canSend: Bool { keyStatus != .missing && keyStatus != .rejected }
+    var canSend: Bool {
+        switch keyStatus {
+        case .valid, .unreachable: return true
+        case .missing, .rejected, .storageError: return false
+        }
+    }
 
     /// The sentences every ranking request carries: the one being searched, and every pin.
     /// One request per item, all of them as parallel Nouls (EVIDENCE.md).
@@ -64,12 +70,12 @@ final class EngineContext {
     }
 
     func itemPass() -> JudgePass<Int64> {
-        JudgePass(judge: judge, cache: cache, models: models, purpose: .ranking, now: now)
+        JudgePass(judge: judge, cache: cache, models: models, purpose: .ranking, maxInFlight: maxInFlight, now: now)
     }
 
     /// The reader's own pass. `.reading` spends the last $0.05 of the day, which is reserved for it: being unable
     /// to light the article you just opened is worse than a search that stopped early.
     func passagePass(for purpose: SpendMeter.Purpose) -> JudgePass<Int> {
-        JudgePass(judge: judge, cache: cache, models: models, purpose: purpose, now: now)
+        JudgePass(judge: judge, cache: cache, models: models, purpose: purpose, maxInFlight: maxInFlight, now: now)
     }
 }

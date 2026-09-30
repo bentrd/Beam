@@ -17,28 +17,33 @@ enum SearchCheck {
         let web = StubWeb()
         web.serve("https://order.example/feed.xml",
                   Fixtures.rss(title: "Order", site: "https://order.example", count: 120, found: 12, unsure: 12))
-        let jev = StubJev()
+        let wave = 4
+        let jev = StubJev(holdsResponses: true)
         guard let lab = try? await Lab.offline(starters: [Lab.candidate("Order", "https://order.example/feed.xml")],
-                                               jev: jev, web: web) else {
+                                               jev: jev, web: web, maxInFlight: wave) else {
             report.expect(false, "an engine over a 120-item library")
             return
         }
-        let listed = await lab.search(Fixtures.sentence)
+        let search = Task { await lab.search(Fixtures.sentence) }
+        let started = await Wait.until({ jev.count >= wave }, within: .seconds(2))
+        let firstWave = jev.all.compactMap { $0.state["title"] }
+        await jev.releaseResponses()
+        let listed = await search.value
         let asks = jev.all
 
         report.expectEqual(asks.count, 120, "every item in the window is judged, whatever the order")
         let titles = asks.compactMap { $0.state["title"] }
         report.expectEqual(Set(titles).count, titles.count, "no item is judged twice")
 
-        // The fixture's relevant titles share words with the sentence; they should go out in the first wave.
+        // Inspect a complete held wave, not the incidental arrival order of dozens of concurrently started tasks.
         let words = Set(Fixtures.sentence.lowercased().split(separator: " ").map(String.init))
         func shares(_ title: String) -> Bool {
             !Set(title.lowercased().split(separator: " ").map(String.init)).intersection(words).isEmpty
         }
-        let early = titles.prefix(24).filter(shares).count
-        let total = titles.filter(shares).count
-        report.expect(early >= min(total, 12), "the items whose words echo the sentence go out first",
-                      detail: "\(early) of the first 24 asks, \(total) in the library")
+        report.expect(started && firstWave.count == wave, "only a bounded wave leaves before any answer returns",
+                      detail: "\(firstWave.count) asks, wave \(wave)")
+        report.expect(firstWave.count == wave && firstWave.allSatisfy(shares), "the items whose words echo the sentence go out first",
+                      detail: "\(firstWave.filter(shares).count) relevant candidates in the first \(firstWave.count) asks")
 
         let rows = listed.last?.rows ?? []
         report.expect(rows.contains { $0.isMarked }, "and the list still finds them")

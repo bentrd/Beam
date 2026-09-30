@@ -84,6 +84,7 @@ extension Database {
         var id: Int64
         var guid: String
         var url: String?
+        var title: String
         var textHash: String
         var lacksPublished: Bool
         var seen: Date
@@ -91,9 +92,9 @@ extension Database {
     }
 
     private func storedMatch(for incoming: Item) throws -> StoredMatch? {
-        let columns = "id, guid, url, text_hash, published IS NULL, seen, content IS ?1"
+        let columns = "id, guid, url, text_hash, published IS NULL, seen, content IS ?1, title"
         let read: (Row) -> StoredMatch = { row in
-            StoredMatch(id: row.int64(0), guid: row.string(1), url: row.optionalString(2), textHash: row.string(3),
+            StoredMatch(id: row.int64(0), guid: row.string(1), url: row.optionalString(2), title: row.string(7), textHash: row.string(3),
                         lacksPublished: row.bool(4), seen: row.date(5), hasSameContent: row.bool(6))
         }
         if let byGUID = try connection.first("SELECT \(columns) FROM item WHERE source_id = ?2 AND guid = ?3",
@@ -132,7 +133,25 @@ extension Database {
             """, [incoming.guid, incoming.url, incoming.title, incoming.snippet, incoming.published, now,
                   incoming.repoName, textHash, incoming.content, stored.id])
         // The cached article was extracted from the old content or the old address.
-        if sourceTextChanged { try connection.execute("DELETE FROM article WHERE item_id = ?", [stored.id]) }
+        if sourceTextChanged {
+            try connection.execute("DELETE FROM article WHERE item_id = ?", [stored.id])
+        } else if stored.title != incoming.title {
+            // Keep the extracted body, but update a title supplied by the feed: it is part of each passage's
+            // judged text and cache key. A different title taken from the page itself keeps its own context.
+            try retitleArticle(itemID: stored.id, from: stored.title, to: incoming.title)
+        }
         return textChanged
+    }
+
+    private func retitleArticle(itemID: Int64, from oldTitle: String, to newTitle: String) throws {
+        guard let cached = try? article(itemID: itemID),
+              case let .ready(passages, images, tables) = cached.content else { return }
+        let retitled = passages.map { passage in
+            var passage = passage
+            if passage.article.isEmpty || passage.article == oldTitle { passage.article = newTitle }
+            return passage
+        }
+        guard retitled != passages else { return }
+        try putArticle(.ready(passages: retitled, images: images, tables: tables), itemID: itemID, fetched: cached.fetched)
     }
 }

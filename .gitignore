@@ -7,3 +7,6 @@ mock/.build/
 mock/build/
 spikes/swift/.build/
 tooling/AppIcon.iconset/
+.env
+.env.*
+!.env.example

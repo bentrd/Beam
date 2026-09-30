@@ -20,6 +20,7 @@ struct ReaderPage: NSViewRepresentable {
 
     let snapshot: ReaderSnapshot?
     let textSize: CGFloat
+    let highlightColor: HighlightColor
     let commands: Commands
     let controller: ReaderController
     let actions: ReaderActions
@@ -29,7 +30,7 @@ struct ReaderPage: NSViewRepresentable {
     func makeNSView(context: Context) -> ReaderPageView { context.coordinator.pageView }
 
     func updateNSView(_ view: ReaderPageView, context: Context) {
-        context.coordinator.update(snapshot: snapshot, textSize: textSize, commands: commands, controller: controller, actions: actions)
+        context.coordinator.update(snapshot: snapshot, textSize: textSize, highlightColor: highlightColor, commands: commands, controller: controller, actions: actions)
     }
 
     static func dismantleNSView(_ view: ReaderPageView, coordinator: ReaderPageCoordinator) {
@@ -71,6 +72,7 @@ final class ReaderPageCoordinator: NSObject, NSTextViewDelegate {
         textView.delegate = self
         textView.onLayout = { [weak self] in
             self?.pageView.strip.needsDisplay = true
+            self?.pageView.layoutLoadingBody()
             self?.viewportMayHaveChanged(after: 0)
         }
         textView.onMarksDisplay = { [weak self] in self?.pageView.strip.needsDisplay = true }
@@ -80,12 +82,13 @@ final class ReaderPageCoordinator: NSObject, NSTextViewDelegate {
 
     // MARK: Updates from SwiftUI
 
-    func update(snapshot: ReaderSnapshot?, textSize: CGFloat, commands new: ReaderPage.Commands, controller: ReaderController, actions: ReaderActions) {
+    func update(snapshot: ReaderSnapshot?, textSize: CGFloat, highlightColor: HighlightColor, commands new: ReaderPage.Commands, controller: ReaderController, actions: ReaderActions) {
         isUpdating = true
         defer { isUpdating = false }
         self.controller = controller
         self.actions = actions
         self.snapshot = snapshot
+        textView.highlightColor = highlightColor
         let old = commands
         commands = new
 
@@ -226,9 +229,18 @@ final class ReaderPageCoordinator: NSObject, NSTextViewDelegate {
             coordinator.textView.relayout()
             coordinator.viewportMayHaveChanged(after: Self.viewportDebounce)
         }
-        add(.default, NSView.boundsDidChangeNotification, clip) { $0.viewportMayHaveChanged(after: Self.viewportDebounce) }
-        add(.default, NSColor.systemColorsDidChangeNotification, nil) { $0.textView.refreshSystemColors() }
-        add(NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil) { $0.textView.refreshSystemColors() }
+        add(.default, NSView.boundsDidChangeNotification, clip) { coordinator in
+            coordinator.pageView.layoutLoadingBody()
+            coordinator.viewportMayHaveChanged(after: Self.viewportDebounce)
+        }
+        add(.default, NSColor.systemColorsDidChangeNotification, nil) { coordinator in
+            coordinator.textView.refreshSystemColors()
+            coordinator.pageView.layoutLoadingBody()
+        }
+        add(NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil) { coordinator in
+            coordinator.textView.refreshSystemColors()
+            coordinator.pageView.layoutLoadingBody()
+        }
     }
 
     private func add(_ center: NotificationCenter, _ name: Notification.Name, _ object: Any?, _ handler: @escaping (ReaderPageCoordinator) -> Void) {

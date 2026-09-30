@@ -2,15 +2,13 @@ import AppKit
 import BeamModels
 import SwiftUI
 
-/// The Settings scene, "Beam Settings": the key with its status, what is sent and the one privacy toggle, and today's spend.
-/// A columns form with no boxed groups and no symbols. The key commits when editing ends; clearing the field removes it.
+/// The Settings scene: explicit connection controls, what is sent, the privacy toggle, and today's spend.
+/// A secure draft is always empty initially; editing it never replaces or removes a saved connection.
 public struct SettingsView: View {
     @Bindable var model: AppModel
 
-    /// Stands in for a stored key, which Beam never reads back out of the Keychain to show.
-    private static let storedKeyMask = String(repeating: "•", count: 24)
-
     @State private var key = ""
+    @State private var status = ""
     @State private var isChecking = false
     @State private var prejudgesTopResults = false
     @State private var dollarsToday = 0.0
@@ -20,17 +18,34 @@ public struct SettingsView: View {
 
     public var body: some View {
         Form {
-            LabeledContent("TypeSafe key:") {
-                VStack(alignment: .leading, spacing: 4) {
-                    SecureField("TypeSafe key", text: $key)
+            LabeledContent("TypeSafe:") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(ShellCopy.connectionStatus(model.keyStatus))
+                    Text("Jev powers search by meaning and matching article passages.")
+                        .foregroundStyle(.secondary)
+                    if let url = ShellLinks.getKey { Link(ShellCopy.getKeyLink, destination: url) }
+                    SecureField(model.keyStatus == .valid ? "Paste a replacement API key" : "Paste your TypeSafe API key", text: $key)
                         .labelsHidden()
                         .writingToolsBehavior(.disabled)
                         .focused($isKeyFocused)
-                        .onSubmit(commitKey)
-                        .frame(width: 300)
-                    Text(keyStatusLine).foregroundStyle(.secondary)
-                    if model.keyStatus != .missing { Text("Clear the field to remove the key.").foregroundStyle(.secondary) }
+                        .disabled(isChecking)
+                        .onSubmit(connect)
+                        .accessibilityLabel("TypeSafe API key")
+                    HStack {
+                        Button(model.keyStatus == .valid ? "Replace Key" : "Connect", action: connect)
+                            .disabled(trimmedKey.isEmpty || isChecking)
+                        if model.keyStatus != .missing {
+                            Button("Disconnect", action: disconnect).disabled(isChecking)
+                        }
+                    }
+                    if !status.isEmpty {
+                        Text(status).foregroundStyle(isChecking ? .secondary : .primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Text("Keys you connect here are stored securely in your macOS Keychain.")
+                        .foregroundStyle(.secondary)
                 }
+                .fixedSize(horizontal: false, vertical: true)
             }
             LabeledContent("Privacy:") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -46,47 +61,68 @@ public struct SettingsView: View {
             LabeledContent("Usage:") {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("About \(dollarsToday.formatted(.currency(code: "USD").locale(Locale(identifier: "en_US")))) today")
-                    Text("Beam stops at $0.50 a day.").foregroundStyle(.secondary)
+                    Text("Usage is billed to your TypeSafe account. Beam stops at $0.50 a day.").foregroundStyle(.secondary)
                 }
+            }
+            LabeledContent("Appearance:") {
+                Picker("Highlight color", selection: Binding(get: { model.preferences.highlightColor },
+                                                               set: { model.preferences.highlightColor = $0 })) {
+                    ForEach(HighlightColor.allCases) { color in
+                        Text(color.title).tag(color)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityLabel("Highlight color")
             }
         }
         .formStyle(.columns)
         .padding(20)
-        .frame(width: 520)
+        .frame(width: 560)
         .navigationTitle("Beam Settings")
         .background(SettingsWindowButtons())
         .task {
+            await model.refreshConnectionStatus()
             prejudgesTopResults = model.backend.prejudgesTopResults
             dollarsToday = await model.backend.dollarsToday()
-            key = model.keyStatus == .missing ? "" : Self.storedKeyMask
         }
         .onChange(of: prejudgesTopResults) { model.backend.prejudgesTopResults = prejudgesTopResults }
-        .onChange(of: isKeyFocused) { if !isKeyFocused { commitKey() } }
-        .onChange(of: key) { old, new in
-            // Typing into the mask means a new key, not an addition to twenty-four bullets.
-            guard old == Self.storedKeyMask, new != old else { return }
-            key = new.hasPrefix(old) ? String(new.dropFirst(old.count)) : (old.hasPrefix(new) ? "" : new)
-        }
-        .onChange(of: keyStatusLine) { Announcer.say(keyStatusLine) }
+        .onChange(of: key) { if !isChecking { status = "" } }
+        .onChange(of: status) { Announcer.say(status) }
+        .onDisappear { key = ""; status = "" }
     }
 
-    private var keyStatusLine: String {
-        if isChecking { return ShellCopy.checkingKey }
-        switch model.keyStatus {
-        case .valid: return "Key works. Stored in your Keychain."
-        case .missing: return "No key. Beam works as a plain reader."
-        case .rejected: return ShellCopy.keyRejected
-        case .unreachable: return ShellCopy.keyUnreachable
-        }
-    }
+    private var trimmedKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    private func commitKey() {
-        guard key != Self.storedKeyMask, !isChecking, !(key.isEmpty && model.keyStatus == .missing) else { return }
+    private func connect() {
+        guard !trimmedKey.isEmpty, !isChecking else { return }
         isChecking = true
+        status = ShellCopy.checkingKey
+        let submittedKey = trimmedKey
         Task {
-            let status = await model.setKey(key.isEmpty ? nil : key)
+            let result = await model.setKey(submittedKey)
+            status = ShellCopy.connectionStatus(result)
+            if result == .valid { key = "" }
             isChecking = false
-            if status != .missing { key = Self.storedKeyMask }
+            dollarsToday = await model.backend.dollarsToday()
+        }
+    }
+
+    private func disconnect() {
+        guard !isChecking else { return }
+        isChecking = true
+        status = "Disconnecting…"
+        Task {
+            let result = await model.setKey(nil)
+            switch result {
+            case .missing:
+                key = ""
+                status = "Disconnected. Your feeds and saved articles remain available."
+            case .valid:
+                key = ""
+                status = "Saved key removed. Beam is still using a development environment key."
+            default: status = ShellCopy.connectionStatus(result)
+            }
+            isChecking = false
         }
     }
 }

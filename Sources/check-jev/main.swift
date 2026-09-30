@@ -17,6 +17,7 @@ await checkJudgeLimit(&report)
 await checkBreaker(&report)
 await checkMidnight(&report)
 checkKeyProvider(&report)
+await checkKeyValidation(&report)
 
 if CheckEnvironment.isOffline {
     report.skip("live checks", because: "--offline")

@@ -40,9 +40,11 @@ public actor Judge {
     public func validate(key candidate: String) async -> KeyStatus {
         let key = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return .missing }
+        guard key.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil else { return .rejected }
         do {
             // Not held back by the breaker: a few hundred tokens, and the user must be able to fix a key on a day the limit was hit.
-            _ = try await send(key: key, state: ["text": "Beam key check."], frames: ["This text is a key check."], purpose: nil)
+            let answer = try await send(key: key, state: ["text": "Beam key check."], frames: ["This text is a key check."], purpose: nil)
+            guard answer.probabilities.count == 1, answer.probabilities[0] != nil else { return .unreachable }
             return .valid
         } catch JevError.unauthorized {
             return .rejected
@@ -70,6 +72,8 @@ public actor Judge {
             if let purpose, await spend.isExhausted(for: purpose) { throw JevError.dailyLimitReached }
             let judgments = try await client.ask(key: key, state: state, frames: frames)
             await spend.add(tokens: judgments.tokens)
+            // A transport may finish after cancellation; meter the billed answer, then discard it.
+            try Task.checkCancellation()
             return judgments
         }
     }

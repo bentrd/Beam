@@ -1,4 +1,5 @@
 import BeamEngine
+import BeamExtract
 import BeamModels
 import Foundation
 
@@ -14,6 +15,8 @@ enum ReaderCheck {
         await marks(&report)
         report.section("Reader (MUST 5) — pre-judging the top results")
         await prejudging(&report)
+        report.section("Reader — cancel a page when its reader is closed")
+        await loadingCancellation(&report)
         guard !offline else {
             report.skip("the GitHub Terms fixture with the real judge", because: "--offline")
             return
@@ -219,5 +222,54 @@ enum ReaderCheck {
         }
         let spent = await lab.engine.dollarsToday()
         report.note(String(format: "judging %d paragraphs cost $%.4f", judgeable.count, spent))
+    }
+
+    private static func loadingCancellation(_ report: inout CheckReport) async {
+        let web = StubWeb()
+        web.serve(feed, Fixtures.rss(title: "Reader", site: "https://reader.example", count: 1))
+        let pages = PausedPages()
+        let jev = StubJev()
+        var environment = EngineEnvironment.check(jevClient: jev.client, feedFetch: web.fetch, pageFetcher: pages,
+                                                  keyProvider: Lab.keyProvider(nil))
+        environment.starters = [CatalogEntry(candidate: Lab.candidate("Reader", feed), blurb: "A fixture", isStarter: true)]
+        environment.refreshesOnLaunch = true
+        guard let engine = try? Engine(environment: environment) else {
+            report.expect(false, "an engine with a paused page fetch")
+            return
+        }
+        await engine.launched()
+        let listed = await Wait.list(engine, ListRequest(scope: .all))
+        guard let row = listed.last?.rows.first else {
+            report.expect(false, "the paused article is listed")
+            return
+        }
+        let stream = engine.open(itemID: row.id, carrying: nil)
+        let started = await Wait.until({ pages.started }, within: .seconds(2))
+        report.expect(started, "opening begins the page fetch")
+        engine.closeReader()
+        let cancelled = await Wait.until({ pages.cancelled }, within: .seconds(2))
+        report.expect(cancelled, "closing the reader cancels its pending page fetch")
+        report.expectEqual(jev.count, 0, "the cancelled page sends no paragraphs to the judge")
+        // Keep the stream alive through the check so only closeReader can cancel the fetch.
+        _ = stream
+    }
+}
+
+private final class PausedPages: PageFetching, @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedStorage = false
+    private var cancelledStorage = false
+    var started: Bool { lock.withLock { startedStorage } }
+    var cancelled: Bool { lock.withLock { cancelledStorage } }
+
+    func fetch(_ url: URL) async throws -> FetchedPage {
+        lock.withLock { startedStorage = true }
+        do {
+            try await Task.sleep(for: .seconds(30))
+            throw FetchFailure.http(status: 404)
+        } catch {
+            if error is CancellationError { lock.withLock { cancelledStorage = true } }
+            throw error
+        }
     }
 }

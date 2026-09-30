@@ -11,6 +11,7 @@ enum Feet {
 
     static let addKey = Foot("Add a key to search.", actionTitle: "Open Settings", action: .openSettings, isProminent: true)
     static let keyRejected = Foot("TypeSafe rejected this key.", actionTitle: "Open Settings", action: .openSettings, isProminent: true)
+    static let keyStorageError = Foot("Couldn't access your TypeSafe key in Keychain.", actionTitle: "Open Settings", action: .openSettings, isProminent: true)
     static let dailyLimit = Foot("Daily limit reached. Resets at midnight.", isProminent: true)
     static let offline = Foot("Offline. Showing what was already checked.", isProminent: true)
     static let stopped = Foot("Stopped after repeated errors.", actionTitle: "Retry", action: .retry, isProminent: true)

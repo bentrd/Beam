@@ -30,6 +30,10 @@ func checkValidation(_ report: inout CheckReport) async {
         ("no answers", "{\"model\": \"m\", \"usage\": {\"input_tokens\": 1}}"),
         ("no token count (cannot be priced)", "{\"model\": \"m\", \"answers\": {}}"),
         ("no model (cannot be cached)", "{\"answers\": {}, \"usage\": {\"input_tokens\": 1}}"),
+        ("fractional token count", "{\"model\": \"m\", \"answers\": {}, \"usage\": {\"input_tokens\": 1.5}}"),
+        ("negative token count", "{\"model\": \"m\", \"answers\": {}, \"usage\": {\"input_tokens\": -1}}"),
+        ("boolean token count", "{\"model\": \"m\", \"answers\": {}, \"usage\": {\"input_tokens\": true}}"),
+        ("overflowing token count", "{\"model\": \"m\", \"answers\": {}, \"usage\": {\"input_tokens\": 1e100}}"),
     ]
     for (what, body) in malformed {
         let client = JevClient(transport: FakeService(script: [.http(200, body: body)]).transport)
@@ -87,6 +91,28 @@ func checkClient(_ report: inout CheckReport) async {
     let untouched = FakeService()
     let keyless = await outcome { try await JevClient(transport: untouched.transport).ask(key: "", state: [:], frames: ["f"]) }
     report.expect(keyless == .failure(.missingKey) && untouched.requests.isEmpty, "an empty key sends nothing")
+    let blank = await outcome { try await JevClient(transport: untouched.transport).ask(key: " \n\t", state: [:], frames: ["f"]) }
+    report.expect(blank == .failure(.missingKey) && untouched.requests.isEmpty, "a whitespace-only key sends nothing")
+    let injected = await outcome { try await JevClient(transport: untouched.transport).ask(key: "key\r\nAuthorization: injected", state: [:], frames: ["f"]) }
+    report.expect(injected == .failure(.unauthorized) && untouched.requests.isEmpty, "line breaks in a key are rejected before building an HTTP header")
+
+    let reflectedKey = String(repeating: "z", count: 100)
+    let reflected = FakeService(fallback: .http(422, body: String(repeating: "x", count: 290) + reflectedKey))
+    let redacted = await outcome { try await JevClient(transport: reflected.transport).ask(key: reflectedKey, state: [:], frames: ["f"]) }
+    if case let .failure(.rejected(_, detail)) = redacted {
+        report.expect(!detail.contains("z") && detail.hasSuffix("<key>"), "a reflected key is redacted before truncation, including across the boundary")
+    } else {
+        report.expect(false, "the reflected-key rejection is reported")
+    }
+
+    struct ReflectedTransportError: LocalizedError {
+        var errorDescription: String? { "Failed request using secret-key" }
+    }
+    let transportError = await outcome {
+        try await JevClient(transport: { _ in throw ReflectedTransportError() }, pause: { _ in })
+            .ask(key: "secret-key", state: [:], frames: ["f"])
+    }
+    report.expect(transportError == .failure(.unreachable("Failed request using <key>")), "transport error messages cannot expose the credential")
 
     let cancelled = FakeService(fallback: .failure(.cancelled))
     let task = Task { try await JevClient(transport: cancelled.transport, pause: PauseLog().pause).ask(key: "k", state: [:], frames: ["f"]) }

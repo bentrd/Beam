@@ -1,5 +1,12 @@
 # Beam — design spec
 
+> **0.1.0 release update (2026-09-30):** A plain, native first-launch sheet introduces Beam and TypeSafe
+> connection, with a plain-reader option. Account controls use explicit Connect and Disconnect actions and
+> explain errors beside the secure field. The reader shows static paragraph-shaped skeleton lines while an
+> article body loads. Settings offers persisted Yellow, Green, Blue, Purple and Pink highlight palettes,
+> applied immediately to reader marks and list matches. These changes supersede the earlier onboarding,
+> key autosave, skeleton and fixed-yellow decisions.
+
 ## 1. Principles
 
 - The content is the interface. Beam has one field, one list and one page of text.
@@ -51,10 +58,12 @@
 
 **Colour**
 - Paper is `textBackgroundColor`, ink is `labelColor`, and hairlines are `separatorColor`. Controls take the user's accent colour.
-- `hitFill` is #FFD60A at 0.22, or 0.40 for the current hit. In dark mode the alphas are 0.16 and 0.30.
-- `hitInk` is #9A6B00, about 4.7:1 on white, and as pale yellow (#FFE066) in dark mode.
+- Settings chooses one highlight palette: Yellow (default), Green, Blue, Purple or Pink. The choice is persisted.
+- `hitFill` uses that palette at 0.22, or 0.40 for the current hit. Dark-mode alphas are 0.20 and 0.34.
+- `hitInk` adapts to dark and light paper for readable bars, strip marks and list matches. Yellow remains
+  #9A6B00 on light paper and #FFE066 in dark mode; the other palettes use corresponding dark/light inks.
 - The pending rail is `separatorColor`, because it is transient. A rail still unchecked after the run settles is `secondaryLabelColor`.
-- Beam uses no red, green or orange and no second hit colour. The one warning glyph is monochrome secondary.
+- Match states share the selected palette and differ by shape. The one warning glyph is monochrome secondary.
 
 **Materials**
 - Glass appears only where the system draws it: sidebar, toolbar items, search field, sheet, popover and menus. `.glassEffect()` is never called.
@@ -82,7 +91,8 @@
   - The settled rail and the strip segment become `labelColor`.
   - The pending rail steps up one label colour.
   - Tint alphas do not change.
-- **Yellow highlight.** When the system highlight colour is in the yellow family, the reader's selection uses `unemphasizedSelectedTextBackgroundColor`. Selection then stays visible on a tint.
+- **Text selection.** When the system selection colour has the same hue as the chosen highlight,
+  the reader uses `unemphasizedSelectedTextBackgroundColor` so selected text stays distinct from a match.
 
 ## 4. Components
 
@@ -288,7 +298,7 @@ Motion is opacity only. Nothing slides, scales, glows or staggers.
   - Tints and marks fade in over 250 ms with ease-out.
   - Rails fade out over 150 ms.
 - The foot reads "Checking 84 paragraphs" and does not tick.
-- The visible effect is a grey rail retracting while yellow settles, finishing in about two seconds.
+- The visible effect is a grey rail retracting while the selected highlight settles, finishing in about two seconds.
 - The article never scrolls by itself.
 
 **Other motion**
@@ -471,8 +481,10 @@ Motion is opacity only. Nothing slides, scales, glows or staggers.
 - There is no warning glyph for transient failures.
 - New York stays out of the list.
 - Rows on screen never move during a run. The highlight is never held on a slot. Nothing opens or scrolls by itself.
-- We use no spinners, progress bars, skeletons, shimmer, ticking counts or "thinking" text.
-- We use no second hit colour, no accent-coloured hits and no yellow controls. Unsure paragraphs never get a tint.
+- Article loading uses a quiet static skeleton beneath the header. We use no spinners, progress bars,
+  shimmer, ticking counts or "thinking" text.
+- A selected palette applies consistently to every match; states keep their different shapes. Controls retain
+  the system accent colour. Unsure paragraphs never get a tint.
 - We never dim reading text or a stale list. We never tint a saturated article, and saturation never looks like an error.
 - We add no hover effects, cards, boxed Settings groups, code-block boxes, or uppercase or letter-spaced labels.
 - We add no recents, suggestions, scopes, tokens or search-as-you-type. There is no Run or Stop button. A new Return is the stop.

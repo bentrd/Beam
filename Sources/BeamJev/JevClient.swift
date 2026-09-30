@@ -43,7 +43,9 @@ public struct JevClient: Sendable {
     /// One request: one piece of state, every frame as a parallel Noul. Packing several items into one
     /// request was measured and rejected (quality drops), so `state` is always a single item or passage.
     public func ask(key: String, state: [String: String], frames: [String]) async throws -> Judgments {
+        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { throw JevError.missingKey }
+        guard key.rangeOfCharacter(from: .whitespacesAndNewlines.union(.controlCharacters)) == nil else { throw JevError.unauthorized }
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 20
@@ -83,9 +85,9 @@ public struct JevClient: Sendable {
             // URLSession reports a cancelled task its own way; callers should see one kind of cancellation.
             throw CancellationError()
         } catch let error as URLError where Self.offlineCodes.contains(error.code) {
-            throw JevError.unreachable(error.localizedDescription)
+            throw JevError.unreachable(redacted(error.localizedDescription, key: key))
         } catch {
-            return .retry(.unreachable(error.localizedDescription))
+            return .retry(.unreachable(redacted(error.localizedDescription, key: key)))
         }
 
         guard let status = (response as? HTTPURLResponse)?.statusCode else { throw JevError.malformedResponse }
@@ -97,8 +99,13 @@ public struct JevClient: Sendable {
         case 429, 500...599:
             return .retry(.overloaded(status: status))
         default:
-            let detail = String(decoding: data.prefix(300), as: UTF8.self).replacingOccurrences(of: key, with: "<key>")
+            // Redact before truncating so a credential crossing the 300-character boundary cannot leak a prefix.
+            let detail = String(redacted(String(decoding: data, as: UTF8.self), key: key).prefix(300))
             throw JevError.rejected(status: status, detail: detail)
         }
+    }
+
+    private func redacted(_ text: String, key: String) -> String {
+        text.replacingOccurrences(of: key, with: "<key>")
     }
 }

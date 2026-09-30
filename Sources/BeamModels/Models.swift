@@ -188,6 +188,8 @@ public enum KeyStatus: Hashable, Sendable {
     case valid
     case rejected
     case unreachable
+    /// The credential could not be read, saved or removed from the login Keychain.
+    case storageError(String)
 }
 
 // MARK: Hashing

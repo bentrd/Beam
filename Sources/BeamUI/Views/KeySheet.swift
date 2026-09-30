@@ -1,8 +1,8 @@
 import BeamModels
 import SwiftUI
 
-/// Raised by Return in the search field when there is no key: what Beam will send, where to read how it is kept,
-/// a secure field, and nothing else. Continue validates the key; on success the sheet closes and the waiting sentence runs.
+/// First-launch setup and the connection prompt raised by a submitted search. Connecting validates and saves the
+/// key; skipping keeps the chronological reader usable and leaves a waiting search in its field.
 struct KeySheet: View {
     @Bindable var model: AppModel
 
@@ -13,51 +13,75 @@ struct KeySheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add your TypeSafe key").font(.headline)
+            Text(model.isWelcomeKeySheet ? "Welcome to Beam" : "Connect to TypeSafe").font(.title2.weight(.semibold))
+            if model.isWelcomeKeySheet {
+                Text(ShellCopy.welcomeIntroduction)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             VStack(alignment: .leading, spacing: 6) {
-                // The top-three clause appears only when the Settings toggle is on.
-                Text(model.backend.prejudgesTopResults ? ShellCopy.disclosureWithTopThree : ShellCopy.disclosure)
-                Text("Nothing has been sent yet.")
-                if let url = ShellLinks.dataRetention { Link(ShellCopy.retentionLink, destination: url) }
+                Text(ShellCopy.connectionInstructions)
+                if let url = ShellLinks.getKey { Link(ShellCopy.getKeyLink, destination: url) }
             }
             .fixedSize(horizontal: false, vertical: true)
 
-            SecureField("TypeSafe key", text: $key)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(model.backend.prejudgesTopResults ? ShellCopy.disclosureWithTopThree : ShellCopy.disclosure)
+                if let url = ShellLinks.dataRetention { Link(ShellCopy.retentionLink, destination: url) }
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            SecureField("Paste your TypeSafe API key", text: $key)
                 .textFieldStyle(.roundedBorder)
                 .writingToolsBehavior(.disabled)
                 .focused($isKeyFocused)
+                .disabled(isChecking)
                 .onSubmit(validate)
-            HStack(alignment: .firstTextBaseline) {
-                Text(status).foregroundStyle(.secondary)
-                Spacer()
-                if let url = ShellLinks.getKey { Link(ShellCopy.getKeyLink, destination: url) }
+                .accessibilityLabel("TypeSafe API key")
+            if !status.isEmpty {
+                Text(status)
+                    .foregroundStyle(isChecking ? .secondary : .primary)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.callout)
+            Text(ShellCopy.keyStorage).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(ShellCopy.plainReader).font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Spacer()
-                Button("Cancel", role: .cancel) { model.cancelKeySheet() }.keyboardShortcut(.cancelAction)
-                Button("Continue", action: validate).keyboardShortcut(.defaultAction).disabled(key.isEmpty || isChecking)
+                Button(model.isWelcomeKeySheet ? "Use as a Reader" : "Not Now", role: .cancel) { model.cancelKeySheet() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(isChecking)
+                Button("Connect", action: validate).keyboardShortcut(.defaultAction).disabled(trimmedKey.isEmpty || isChecking)
             }
             .padding(.top, 4)
         }
         .padding(20)
-        .frame(width: 440)
-        .onAppear { isKeyFocused = true }
+        .frame(width: 480)
+        .onAppear {
+            isKeyFocused = true
+            if model.keyStatus != .missing { status = ShellCopy.connectionStatus(model.keyStatus) }
+        }
+        .onDisappear { key = "" }
+        .onChange(of: key) { if !isChecking { status = "" } }
         .onChange(of: status) { Announcer.say(status) }
     }
 
+    private var trimmedKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
+
     private func validate() {
-        guard !key.isEmpty, !isChecking else { return }
+        guard !trimmedKey.isEmpty, !isChecking else { return }
         isChecking = true
         status = ShellCopy.checkingKey
+        let submittedKey = trimmedKey
         Task {
-            // On success the model closes the sheet and runs the sentence that was waiting in the field.
-            switch await model.setKey(key) {
-            case .valid: model.isKeySheetPresented = false
-            case .rejected, .missing: status = ShellCopy.keyRejected
-            case .unreachable: status = ShellCopy.keyUnreachable
-            }
+            // Only a validated and saved key closes setup and runs the sentence waiting in the field.
+            let result = await model.setKey(submittedKey)
+            status = ShellCopy.connectionStatus(result)
+            if result == .valid { key = "" }
             isChecking = false
         }
     }

@@ -44,7 +44,8 @@ enum Wire {
               let answers = root["answers"] as? [String: Any],
               let model = root["model"] as? String, !model.isEmpty,
               let usage = root["usage"] as? [String: Any],
-              let tokens = number(usage["input_tokens"])?.intValue, tokens >= 0
+              let count = number(usage["input_tokens"]),
+              let tokens = Int(exactly: count.doubleValue), tokens >= 0
         else { throw JevError.malformedResponse }
 
         let probabilities = (0..<frameCount).map { index -> Double? in

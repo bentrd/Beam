@@ -12,6 +12,7 @@ extension AppModel {
         guard keyStatus != .missing else {
             // No key yet: the sentence waits in the field while the sheet asks for one.
             waitingSentence = typed
+            isWelcomeKeySheet = false
             isKeySheetPresented = true
             return
         }
@@ -44,6 +45,8 @@ extension AppModel {
     /// Cancel in the key sheet keeps the sentence in the field, and the foot says what is missing.
     public func cancelKeySheet() {
         isKeySheetPresented = false
+        isWelcomeKeySheet = false
+        if offersWelcome { preferences.hasCompletedWelcome = true }
         if waitingSentence != nil { footOverride = ShellCopy.addKeyFoot }
     }
 

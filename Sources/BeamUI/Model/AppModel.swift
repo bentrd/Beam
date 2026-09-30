@@ -58,6 +58,7 @@ public final class AppModel {
 
     // Presentation
     public var isKeySheetPresented = false
+    public internal(set) var isWelcomeKeySheet = false
     public var isAddSourcePresented = false
     /// A URL dropped on the sidebar: the popover opens with it already running.
     public var addSourcePrefill: String?
@@ -80,6 +81,8 @@ public final class AppModel {
     @ObservationIgnored var firstPaintTask: Task<Void, Never>?
     @ObservationIgnored var readerTask: Task<Void, Never>?
     @ObservationIgnored var hasStarted = false
+    @ObservationIgnored let offersWelcome: Bool
+    @ObservationIgnored private let forcesWelcome: Bool
     @ObservationIgnored var itemToRestore: Int64?
     @ObservationIgnored var hasAnnouncedSettle = false
     /// True once Ben has reached into the list in this run (a click, an arrow key, Down from the field): from then on
@@ -90,9 +93,11 @@ public final class AppModel {
     /// Undoable backend actions under way. They are observed, because the File menu greys out what is in flight.
     var mutationsInFlight: Set<Mutation> = []
 
-    public init(backend: BeamBackend, preferences: Preferences? = nil) {
+    public init(backend: BeamBackend, preferences: Preferences? = nil, offersWelcome: Bool = true, forcesWelcome: Bool = false) {
         self.backend = backend
         self.preferences = preferences ?? Preferences()
+        self.offersWelcome = offersWelcome
+        self.forcesWelcome = forcesWelcome
     }
 
     // MARK: What the views draw
@@ -136,7 +141,7 @@ public final class AppModel {
         guard !hasStarted else { return }
         hasStarted = true
         itemToRestore = preferences.lastItemID
-        Task { keyStatus = await backend.keyStatus() }
+        Task { [weak self] in await self?.loadKeyStatus() }
         let snapshots = backend.sidebar()
         sidebarTask = Task { [weak self] in
             var isFirst = true
@@ -159,14 +164,34 @@ public final class AppModel {
 
     public func focusSearchField() { searchFocusRequests += 1 }
 
+    /// Loading a connection sends no validation request. Captured design sessions can opt out of setup.
+    public func loadKeyStatus() async {
+        await refreshConnectionStatus()
+        guard offersWelcome, forcesWelcome || !preferences.hasCompletedWelcome else { return }
+        if keyStatus == .valid, !forcesWelcome {
+            preferences.hasCompletedWelcome = true
+        } else {
+            isWelcomeKeySheet = true
+            isKeySheetPresented = true
+        }
+    }
+
+    /// A request may have discovered that a saved key was revoked since launch.
+    public func refreshConnectionStatus() async { keyStatus = await backend.keyStatus() }
+
     /// Settings and the key sheet both end here. A sentence that was waiting for a key runs as soon as one is accepted.
     public func setKey(_ key: String?) async -> KeyStatus {
-        keyStatus = await backend.setKey(key)
-        if keyStatus == .valid, let waiting = waitingSentence, Self.cleaned(fieldText) == waiting {
+        let result = await backend.setKey(key)
+        // A failed replacement preserves the saved connection; report the attempted key separately to the view.
+        keyStatus = await backend.keyStatus()
+        let connected = result == .valid && !(key ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if connected {
+            if offersWelcome { preferences.hasCompletedWelcome = true }
             isKeySheetPresented = false
-            run(waiting)
+            isWelcomeKeySheet = false
+            if let waiting = waitingSentence, Self.cleaned(fieldText) == waiting { run(waiting) }
         }
-        return keyStatus
+        return result
     }
 
     static func cleaned(_ text: String) -> String { text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }

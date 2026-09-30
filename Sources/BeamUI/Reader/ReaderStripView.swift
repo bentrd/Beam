@@ -27,12 +27,13 @@ final class ReaderStripView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let page, let context = NSGraphicsContext.current?.cgContext else { return }
         let raised = ReaderContrast.isRaised
+        let ink = ReaderTheme.hitInk(page.highlightColor)
         for entry in page.stripEntries() {
-            draw(entry, raised: raised, in: context)
+            draw(entry, ink: ink, raised: raised, in: context)
         }
     }
 
-    private func draw(_ entry: ReaderStripEntry, raised: Bool, in context: CGContext) {
+    private func draw(_ entry: ReaderStripEntry, ink: NSColor, raised: Bool, in context: CGContext) {
         let top = entry.top * bounds.height
         let natural = entry.height * bounds.height
         let edge = bounds.maxX - Self.trailingInset
@@ -52,11 +53,11 @@ final class ReaderStripView: NSView {
         // shape fades in over the resting one; nothing grows.
         switch entry.hit {
         case .found:
-            ReaderTheme.hitInk.setFill()
+            ink.setFill()
             withOpacity(entry.hitOpacity) { NSBezierPath(roundedRect: rect(width: 6, minimumHeight: 3), xRadius: 1.5, yRadius: 1.5).fill() }
             withOpacity(entry.hitOpacity * entry.emphasis) { NSBezierPath(roundedRect: rect(width: 10, minimumHeight: 3), xRadius: 1.5, yRadius: 1.5).fill() }
         case .unsure:
-            ReaderTheme.hitInk.setStroke()
+            ink.setStroke()
             withOpacity(entry.hitOpacity * (1 - entry.emphasis)) { strokeHollow(rect(width: 8, minimumHeight: 6)) }
             withOpacity(entry.hitOpacity * entry.emphasis) { strokeHollow(rect(width: 10, minimumHeight: 6)) }
         case .none, .pending, .unchecked:

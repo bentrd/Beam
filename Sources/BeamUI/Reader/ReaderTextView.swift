@@ -14,6 +14,9 @@ final class ReaderTextView: NSTextView {
 
     private(set) var document: ReaderDocument?
     private(set) var plan = ReaderMarkPlan.empty
+    var highlightColor = HighlightColor.yellow {
+        didSet { if highlightColor != oldValue { refreshSystemColors() } }
+    }
     private var metrics = ReaderMetrics(textSize: ReaderTextSize.standard)
 
     // Layout cache, in text-container coordinates.
@@ -54,6 +57,7 @@ final class ReaderTextView: NSTextView {
         applyTimer?.invalidate()
         applyTimer = nil
         textStorage?.setAttributedString(document?.text ?? NSAttributedString())
+        setAccessibilityLabel(document?.identity.phase == .loading ? "Loading article" : nil)
         setSelectedRange(NSRange(location: 0, length: 0))
         relayout()
     }
@@ -120,6 +124,25 @@ final class ReaderTextView: NSTextView {
     /// or before the first layout pass.
     var bodyTop: CGFloat? {
         bylineFrame.map { geometry.textRect($0).maxY + metrics.hairlineOffset + 1 }
+    }
+
+    /// Decorative body lines in page coordinates. They never enter text storage, selection or passage judgments.
+    var loadingBodyLines: [NSRect] {
+        guard document?.identity.phase == .loading, let bodyTop else { return [] }
+        let origin = textContainerOrigin
+        let measure = textContainer?.size.width ?? metrics.measure
+        let patterns: [[CGFloat]] = [[0.96, 1, 0.91, 0.58], [1, 0.88, 0.96, 0.70], [0.94, 1, 0.64]]
+        let height = max(8, metrics.textSize * 0.65)
+        var y = bodyTop + metrics.bodyLeading * 0.6
+        var lines: [NSRect] = []
+        for paragraph in patterns {
+            for width in paragraph {
+                lines.append(NSRect(x: origin.x, y: y, width: measure * width, height: height))
+                y += metrics.bodyLeading
+            }
+            y += metrics.paragraphSpacing
+        }
+        return lines
     }
 
     /// The text rect of a passage in view coordinates, from the cache.
@@ -295,14 +318,14 @@ final class ReaderTextView: NSTextView {
         case .found:
             withOpacity(opacity) {
                 let box = backingAlignedRect(geometry.tint(for: text), options: .alignAllEdgesNearest)
-                ReaderTheme.hitFill(alpha: ReaderTheme.hitFillAlpha(emphasis: emphasis, isDark: isDark)).setFill()
+                ReaderTheme.hitFill(alpha: ReaderTheme.hitFillAlpha(emphasis: emphasis, isDark: isDark), color: highlightColor).setFill()
                 NSBezierPath(roundedRect: box, xRadius: metrics.tintRadius, yRadius: metrics.tintRadius).fill()
                 guard raised else { return }
                 // Without colour a pale fill is barely a shape; the outline makes it one (1 pt, 2 pt when current).
                 let width: CGFloat = 1 + emphasis
                 let outline = NSBezierPath(roundedRect: box.insetBy(dx: width / 2, dy: width / 2), xRadius: metrics.tintRadius, yRadius: metrics.tintRadius)
                 outline.lineWidth = width
-                ReaderTheme.hitInk.setStroke()
+                ReaderTheme.hitInk(highlightColor).setStroke()
                 outline.stroke()
             }
         case .unsure:
@@ -318,7 +341,7 @@ final class ReaderTextView: NSTextView {
         let lineWidth: CGFloat = 1.5
         let path = NSBezierPath(roundedRect: rect.insetBy(dx: lineWidth / 2, dy: lineWidth / 2), xRadius: 2.5, yRadius: 2.5)
         path.lineWidth = lineWidth
-        ReaderTheme.hitInk.setStroke()
+        ReaderTheme.hitInk(highlightColor).setStroke()
         path.stroke()
     }
 
@@ -396,7 +419,7 @@ final class ReaderTextView: NSTextView {
 
     /// Accent, highlight and contrast settings can change while the page is open.
     func refreshSystemColors() {
-        selectedTextAttributes = ReaderSelection.attributes
+        selectedTextAttributes = ReaderSelection.attributes(highlightColor: highlightColor)
         needsDisplay = true
         onMarksDisplay?()
     }

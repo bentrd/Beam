@@ -1,4 +1,5 @@
 import BeamEngine
+import BeamJev
 import BeamModels
 import Foundation
 
@@ -17,6 +18,9 @@ enum PinsCheck {
         }
         report.section("Pins (MUST 4) — what a pin shows")
         await behaviour(&report)
+        report.section("Pins — recover missing answers without feed edits")
+        await catchUp(&report)
+        await connectKeylessPin(&report)
     }
 
     /// Twenty items arrive at a library that already has `pins` pins.
@@ -109,6 +113,59 @@ enum PinsCheck {
         zip(rows, rows.dropFirst()).allSatisfy { $0.item.sortDate >= $1.item.sortDate }
     }
 
+    /// The feed need not edit an item for a failed pin check to deserve another try.
+    private static func catchUp(_ report: inout CheckReport) async {
+        let web = StubWeb()
+        web.serve(address, Fixtures.rss(title: "Pinned", site: "https://pins.example", count: 20, found: 6, unsure: 4))
+        let jev = StubJev(fails: { _ in true })
+        guard let lab = try? await Lab.offline(starters: [Lab.candidate("Pinned", address)], jev: jev, web: web) else {
+            report.expect(false, "an engine with failed pin checks")
+            return
+        }
+        _ = await lab.engine.pin(sentence: Fixtures.sentence)
+        let failed = await lab.sidebar()
+        report.expect(failed.pins.first?.hasUnchecked == true, "a failed pass marks the pin unchecked")
+
+        jev.stopFailing()
+        jev.reset()
+        await lab.engine.refresh()
+        let recovered = await lab.sidebar()
+        report.expectEqual(jev.count, 20, "refresh retries missing pin answers when the feed is unchanged")
+        report.expect(recovered.pins.first?.hasUnchecked == false, "a recovered pin clears its warning")
+        report.expectEqual(recovered.pins.first?.newFound, 6, "and its badge includes the recovered hits")
+
+        jev.reset()
+        await lab.engine.refresh()
+        report.expectEqual(jev.count, 0, "another unchanged refresh uses the recovered cache")
+    }
+
+    private static func connectKeylessPin(_ report: inout CheckReport) async {
+        let web = StubWeb()
+        web.serve(address, Fixtures.rss(title: "Pinned", site: "https://pins.example", count: 20, found: 6, unsure: 4))
+        let jev = StubJev()
+        let storage = PinCredentialStorage()
+        var environment = EngineEnvironment.check(jevClient: jev.client, feedFetch: web.fetch,
+                                                  keyProvider: KeyProvider(environment: [:], storage: storage))
+        environment.starters = [CatalogEntry(candidate: Lab.candidate("Pinned", address), blurb: "A fixture", isStarter: true)]
+        environment.refreshesOnLaunch = true
+        guard let engine = try? Engine(environment: environment) else {
+            report.expect(false, "an engine with a keyless pin")
+            return
+        }
+        await engine.launched()
+        _ = await engine.pin(sentence: Fixtures.sentence)
+        report.expectEqual(jev.count, 0, "a pin created over keyless fetched items sends nothing")
+        report.expectEqual(await engine.setKey("connected-fixture-key"), .valid, "connecting validates and stores the key")
+        let caughtUp = await Wait.until({ jev.count >= 21 }, within: .seconds(5))
+        report.expect(caughtUp, "connecting starts pin catch-up without another feed edit")
+        // Wait for the owned pass to finish; a following unchanged refresh reuses its cache.
+        await engine.refresh()
+        report.expectEqual(jev.count, 21, "connection and catch-up cost one validation plus one request per item")
+        var sidebar = SidebarSnapshot()
+        for await snapshot in engine.sidebar() { sidebar = snapshot; break }
+        report.expectEqual(sidebar.pins.first?.newFound, 6, "the previously keyless pin receives its found badge")
+    }
+
     /// The same feed with one title changed: the item keeps its row and its read state, and its judged text is new.
     private static func edited(count: Int) -> String {
         var body = Fixtures.rss(title: "Pinned", site: "https://pins.example", count: count, found: 6, unsure: 4)
@@ -116,4 +173,11 @@ enum PinsCheck {
                                          with: "\(Fixtures.Relevance.found.title) 0, revised")
         return body
     }
+}
+
+private final class PinCredentialStorage: KeyStoring, @unchecked Sendable {
+    private var key: String?
+    func read() throws -> String? { key }
+    func write(_ key: String) throws { self.key = key }
+    func remove() throws { key = nil }
 }

@@ -6,20 +6,40 @@
 # resource bundles — they sit next to the binary in .build, and `Bundle.module` looks for them in
 # Contents/Resources once the executable is inside an app, so they have to be copied.
 #
-# usage: tooling/make-app.sh [Configuration]      (debug or release; release by default)
+# usage: tooling/make-app.sh [debug|release] [native|universal|arm64|x86_64]
 set -euo pipefail
 
 CONFIG="${1:-release}"
+ARCH="${2:-native}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+case "$CONFIG" in debug|release) ;; *) echo "Configuration must be debug or release" >&2; exit 2 ;; esac
+typeset -a ARCH_FLAGS
+case "$ARCH" in
+  native) ARCH_FLAGS=() ;;
+  universal) ARCH_FLAGS=() ;;
+  arm64|x86_64) ARCH_FLAGS=(--triple "$ARCH-apple-macosx26.0") ;;
+  *) echo "Architecture must be native, universal, arm64 or x86_64" >&2; exit 2 ;;
+esac
+VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
+[[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || { echo "VERSION must contain a numeric release version" >&2; exit 2; }
 
 NAME="Beam"
 BUNDLE_ID="dev.beam.app"
 APP="$ROOT/build/$NAME.app"
 
-echo "building ($CONFIG)…"
-swift build -c "$CONFIG" --product Beam 2>&1 | grep -E "error|warning: .*never used|Build complete" || true
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+echo "building ($CONFIG, $ARCH)…"
+if [[ "$ARCH" == universal ]]; then
+  # SwiftPM's multi-arch mode requires Xcode's xcbuild. Build each slice with Command Line Tools instead.
+  swift build -c "$CONFIG" --triple arm64-apple-macosx26.0 --product Beam
+  BIN_DIR="$(swift build -c "$CONFIG" --triple arm64-apple-macosx26.0 --show-bin-path)"
+  swift build -c "$CONFIG" --triple x86_64-apple-macosx26.0 --product Beam
+  INTEL_BIN_DIR="$(swift build -c "$CONFIG" --triple x86_64-apple-macosx26.0 --show-bin-path)"
+else
+  swift build -c "$CONFIG" "${ARCH_FLAGS[@]}" --product Beam
+  BIN_DIR="$(swift build -c "$CONFIG" "${ARCH_FLAGS[@]}" --show-bin-path)"
+fi
 [[ -x "$BIN_DIR/Beam" ]] || { echo "build failed: $BIN_DIR/Beam is missing" >&2; exit 1; }
 
 if [[ ! -f "$ROOT/tooling/AppIcon.icns" ]]; then
@@ -28,18 +48,25 @@ if [[ ! -f "$ROOT/tooling/AppIcon.icns" ]]; then
 fi
 
 echo "assembling…"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/Beam" "$APP/Contents/MacOS/Beam"
-cp "$ROOT/tooling/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+mkdir -p "$ROOT/build"
+STAGING="$(mktemp -d "$ROOT/build/.Beam.XXXXXX")"
+trap 'rm -rf "$STAGING"' EXIT
+BUNDLE="$STAGING/$NAME.app"
+mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
+if [[ "$ARCH" == universal ]]; then
+  lipo -create "$BIN_DIR/Beam" "$INTEL_BIN_DIR/Beam" -output "$BUNDLE/Contents/MacOS/Beam"
+  lipo "$BUNDLE/Contents/MacOS/Beam" -verify_arch arm64 x86_64
+else
+  cp "$BIN_DIR/Beam" "$BUNDLE/Contents/MacOS/Beam"
+fi
+cp "$ROOT/tooling/AppIcon.icns" "$BUNDLE/Contents/Resources/AppIcon.icns"
 
-# SwiftPM resource bundles (BeamUI's captured FakeData, and anything else a target declares).
-for bundle in "$BIN_DIR"/*.bundle(N); do
-  cp -R "$bundle" "$APP/Contents/Resources/"
-done
+# Only the app's resources belong in the release, not acceptance-test fixtures.
+[[ -d "$BIN_DIR/Beam_BeamUI.bundle" ]] || { echo "BeamUI resources are missing" >&2; exit 1; }
+cp -R "$BIN_DIR/Beam_BeamUI.bundle" "$BUNDLE/Contents/Resources/"
 
-VERSION="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
-cat > "$APP/Contents/Info.plist" <<PLIST
+BUILD_NUMBER="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
+cat > "$BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -49,8 +76,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Beam</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.news</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -62,14 +89,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # Ad-hoc signing, after everything is in place: signing first and copying second invalidates the signature.
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 \
-  || echo "note: ad-hoc signing failed; the app will still run locally"
+plutil -lint "$BUNDLE/Contents/Info.plist"
+# Finder metadata inherited from source assets is forbidden inside a signed bundle.
+xattr -cr "$BUNDLE"
+codesign --force --deep --sign - "$BUNDLE"
+codesign --verify --deep --strict "$BUNDLE"
 
-# The one thing that silently breaks a hand-made bundle: a resource bundle that did not come along.
-if [[ -d "$APP/Contents/Resources/Beam_BeamUI.bundle" ]]; then
-  echo "resources: BeamUI bundle present"
-else
-  echo "WARNING: BeamUI's resource bundle is missing; -fake YES will not find its captured data" >&2
-fi
+# Publish the bundle only after the build, resources and signature pass.
+rm -rf "$APP"
+mv "$BUNDLE" "$APP"
 
 echo "built $APP"

@@ -39,6 +39,7 @@ extension AppModel {
             for await snapshot in snapshots {
                 guard let self, self.openItemID == id else { return }
                 self.readerSnapshot = snapshot
+                if !snapshot.isRunning { await self.refreshConnectionStatus() }
                 if snapshot.phase == .external, trigger != .click, !hasLeftForBrowser {
                     hasLeftForBrowser = true
                     self.openInBrowser(id)

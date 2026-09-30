@@ -6,6 +6,7 @@ import SwiftUI
 /// The pane holds no product logic. It draws a `ReaderSnapshot`, keeps `ReaderController` truthful about what can be
 /// navigated, and reports what the reader does through `ReaderActions`.
 public struct ReaderPane: View {
+    @Environment(\.beamHighlightColor) private var highlightColor
     private let snapshot: ReaderSnapshot?
     private let textSize: CGFloat
     private let controller: ReaderController
@@ -38,7 +39,7 @@ public struct ReaderPane: View {
         let hits = ReaderHitState(snapshot: snapshot)
         let isAskOpen = controller.isAskOpen && hits.isArticleOpen
         let foot = foot(hits, isAskOpen: isAskOpen)
-        ReaderPage(snapshot: snapshot, textSize: textSize, commands: commands(hits), controller: controller, actions: actions)
+        ReaderPage(snapshot: snapshot, textSize: textSize, highlightColor: highlightColor, commands: commands(hits), controller: controller, actions: actions)
             // The system's own separator stays hidden while nothing scrolls under the accessory, and the reader's
             // AppKit scroll view cannot be given the hard scroll-edge effect, so the page keeps its bottom hairline.
             .overlay(alignment: .bottom) { if footIsAccessory { Divider() } }

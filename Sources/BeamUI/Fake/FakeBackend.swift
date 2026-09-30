@@ -9,8 +9,8 @@ import Foundation
 /// Two sentences are real: the one the list was captured with lights twelve paragraphs of the long article, and
 /// "large language models" saturates it. Any other sentence is scored by `FakeJudge`, which is plausible, not right.
 ///
-/// In Settings or the key sheet, a key starting with "reject" is rejected and one starting with "offline" is unreachable,
-/// so both status lines can be seen; any other text is accepted.
+/// Connection attempts beginning with "reject", "offline", or "keychain" stage each failure. Failed replacements
+/// preserve the current connection, matching the real engine; any other nonempty text is accepted.
 @MainActor
 public final class FakeBackend: BeamBackend {
     struct UndoEntry { let title: String; let restore: () -> Void }
@@ -36,6 +36,7 @@ public final class FakeBackend: BeamBackend {
     private var nextID: Int64 = 1_000
 
     public var prejudgesTopResults = false
+    public private(set) var keyValidationAttempts = 0
     public var undoTitle: String? { undoStack.last?.title }
 
     public init(options: FakeOptions = FakeOptions()) throws {
@@ -69,8 +70,15 @@ public final class FakeBackend: BeamBackend {
         if trimmed.isEmpty {
             status = .missing
         } else {
+            keyValidationAttempts += 1
             try? await Task.sleep(for: .milliseconds(600))          // long enough to read "Checking…"
-            status = trimmed.lowercased().hasPrefix("reject") ? .rejected : (trimmed.lowercased().hasPrefix("offline") ? .unreachable : .valid)
+            let candidate: KeyStatus
+            if trimmed.lowercased().hasPrefix("reject") { candidate = .rejected }
+            else if trimmed.lowercased().hasPrefix("offline") { candidate = .unreachable }
+            else if trimmed.lowercased().hasPrefix("keychain") { candidate = .storageError("The Keychain is locked.") }
+            else { candidate = .valid }
+            guard candidate == .valid else { return candidate }
+            status = .valid
         }
         publishList()
         return status

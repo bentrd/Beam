@@ -110,6 +110,33 @@ extension Engine {
     /// - Parameter itemIDs: what a refresh reported as new or edited, or nil for the newest items (a pin that
     ///   has just been created has nothing of its own to catch up on but everything already here).
     func judgeForPins(itemIDs: [Int64]?) async {
+        // Refresh, adding a pin and reconnecting can arrive together. Finish one pass before starting another:
+        // its cached answers keep concurrent asks from charging for the same item twice.
+        while let pending = pinRefreshTask {
+            await pending.value
+            guard !Task.isCancelled else { return }
+        }
+        let epoch = pinRefreshEpoch
+        let work = Task { [weak self] in
+            guard let self, !Task.isCancelled, epoch == self.pinRefreshEpoch else { return }
+            await self.runPinRefresh(itemIDs: itemIDs)
+            if epoch == self.pinRefreshEpoch { self.pinRefreshTask = nil }
+        }
+        pinRefreshTask = work
+        await work.value
+    }
+
+    /// Retry missing answers for the stored library, including items fetched before a key was connected.
+    func refreshPins() async { await judgeForPins(itemIDs: nil) }
+
+    /// A credential change stops the owned pass, even when it was started by a feed refresh.
+    func cancelPinRefresh() {
+        pinRefreshEpoch += 1
+        pinRefreshTask?.cancel()
+        pinRefreshTask = nil
+    }
+
+    private func runPinRefresh(itemIDs: [Int64]?) async {
         let sentences = pinSentences()
         guard !sentences.isEmpty, context.canSend else { return await reloadPinSummaries() }
         var items: [Item] = []
@@ -124,20 +151,24 @@ extension Engine {
             EngineLog.failure("reading items to judge for the pins", error)
             return
         }
-        guard !items.isEmpty else { return }
+        guard !Task.isCancelled, !items.isEmpty else { return }
 
         let known = await context.cache.answers(textHashes: items.map(\.textHash), sentences: sentences,
                                                 model: context.models.current)
+        guard !Task.isCancelled, context.canSend else { return }
         let targets = ListController.roundRobin(items).compactMap { item -> JudgeTarget<Int64>? in
             guard sentences.contains(where: { known[item.textHash]?[$0.hash] == nil }) else { return nil }
             return JudgeTarget(id: item.id, textHash: item.textHash, state: item.judgedText)
         }
-        guard !targets.isEmpty else { return await reloadPinSummaries() }
+        guard !targets.isEmpty else {
+            if itemIDs == nil { pinsHaveUnchecked = false }
+            return await reloadPinSummaries()
+        }
 
         let failures = Tally()
         let outcome = await context.itemPass().run(targets: targets, sentences: sentences, known: known,
                                                    answered: { _, _ in }, failed: { _ in failures.add() })
-        guard outcome != .cancelled else { return }
+        guard !Task.isCancelled, outcome != .cancelled else { return }
         // The pin rows warn only once a pass has actually left items unjudged, never while one is still running.
         pinsHaveUnchecked = failures.count > 0 || outcome != .completed
         if outcome == .keyRejected { context.keyStatus = .rejected }

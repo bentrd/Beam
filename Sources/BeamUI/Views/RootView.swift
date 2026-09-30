@@ -30,6 +30,7 @@ public struct RootView: View {
             ReaderPane(snapshot: model.readerSnapshot, textSize: model.preferences.textSize, controller: model.reader,
                        actions: model.readerActions)
         }
+        .environment(\.beamHighlightColor, model.preferences.highlightColor)
         .navigationTitle(model.windowTitle)
         .toolbar {
             ToolbarItem(placement: .principal) {

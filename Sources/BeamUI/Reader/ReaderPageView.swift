@@ -8,6 +8,7 @@ final class ReaderPageView: NSView {
     let scrollView = NSScrollView()
     let textView = ReaderTextView(usingTextLayoutManager: true)
     let strip = ReaderStripView()
+    private let loadingBody = ReaderLoadingBodyView()
     private let veil = ReaderVeilView()
     private var veilFades = 0
 
@@ -23,7 +24,9 @@ final class ReaderPageView: NSView {
         strip.page = textView
         strip.scrollView = scrollView
         veil.isHidden = true
+        loadingBody.isHidden = true
         addSubview(scrollView)
+        addSubview(loadingBody)
         addSubview(veil)
         addSubview(strip)
     }
@@ -39,6 +42,14 @@ final class ReaderPageView: NSView {
         strip.frame = NSRect(x: bounds.maxX - scroller - ReaderStripView.laneWidth, y: Self.stripVerticalInset,
                              width: ReaderStripView.laneWidth, height: max(bounds.height - Self.stripVerticalInset * 2, 0))
         strip.needsDisplay = true
+        layoutLoadingBody()
+    }
+
+    /// Follows the real header's layout while fetching; loaded and failed documents remove it immediately.
+    func layoutLoadingBody() {
+        loadingBody.frame = scrollView.contentView.frame
+        loadingBody.lines = textView.loadingBodyLines.map { loadingBody.convert($0, from: textView) }
+        loadingBody.isHidden = loadingBody.lines.isEmpty
     }
 
     /// The body's arrival: 200 ms, opacity only, with the header already in its final place.
@@ -109,6 +120,28 @@ final class ReaderPageView: NSView {
             .cursor: NSCursor.pointingHand,
         ]
         textView.refreshSystemColors()
+    }
+}
+
+/// Quiet paragraph shapes while article bytes arrive. The header stays selectable, and every event falls through.
+private final class ReaderLoadingBodyView: NSView {
+    var lines: [NSRect] = [] { didSet { needsDisplay = true } }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func isAccessibilityElement() -> Bool { false }
+    override func accessibilityChildren() -> [Any]? { [] }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        (ReaderContrast.isRaised ? NSColor.tertiaryLabelColor : NSColor.quaternaryLabelColor).setFill()
+        for line in lines where line.intersects(dirtyRect) {
+            let rect = backingAlignedRect(line, options: .alignAllEdgesNearest)
+            NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+        }
     }
 }
 

@@ -36,6 +36,10 @@ func checkRefresher(_ report: inout CheckReport) async {
     let failures = Dictionary(uniqueKeysWithValues: results.compactMap { result in result.error.map { (result.source.id, $0) } })
     report.expect(failures == [4: .http(status: 500), 9: .notAFeed, 13: .offline, 21: .http(status: 404)], "each failure is reported for its own source", detail: "\(failures)")
     report.expectEqual(FeedError.http(status: 404).reason, "the feed is gone (HTTP 404)", "a reason finishes the sentence \"Couldn't refresh: …\"")
+    for delay in [Double.infinity, Double.nan, Double.greatestFiniteMagnitude] {
+        report.expectEqual(FeedError.rateLimited(retryAfter: delay).reason, "the server asked Beam to slow down",
+                           "an unrepresentable rate-limit delay remains a source error, never a crash")
+    }
 
     report.section("Refresher: timeout")
     web = MockWeb()

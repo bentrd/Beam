@@ -1,5 +1,12 @@
 # Beam — v1 product spec
 
+> **0.1.0 release update (2026-09-30):** First launch now introduces Beam and offers TypeSafe connection
+> or a plain-reader option. Settings uses explicit Connect and Disconnect controls. A failed key replacement
+> preserves the working connection; Keychain failures are shown. These release decisions supersede earlier
+> instructions about avoiding onboarding, removing a key by clearing its field, and committing on focus loss.
+> Highlight colour is configurable in Settings: Yellow (default), Green, Blue, Purple or Pink, persisted
+> and applied immediately to reader highlights, navigation marks and list matches.
+
 1. **One line + the 10-second aha**
 
 Beam ranks everything you follow against one plain sentence, then opens each article with the matching paragraphs already lit. It never summarises, rewrites or answers: it ranks, and it points at source text.
@@ -53,7 +60,7 @@ Passages: paragraphs, quotes, list items; under 40 characters merges forward, ov
 Failed (thin text, HTTP error, paywall, JavaScript-only): title, snippet, "Beam couldn't get the article text. Open Original."
 Carried sentence: opening from a search or pin judges passages at once; if Ben allows it, the top three found rows are judged ahead, 40 passages each.
 Find: Return re-lights this article only; Esc restores the carried sentence.
-Marks, one yellow: found, soft tint plus solid margin bar; unsure, hollow bar. Strip: solid tick, hollow tick, dimmed where unchecked. Cmd-G walks hits in order, wrapping.
+Marks use one selected palette (Yellow by default; Green, Blue, Purple and Pink in Settings): found, soft tint; unsure, hollow bar. Strip: solid tick, hollow tick, dimmed where unchecked. Cmd-G walks hits in order, wrapping.
 Wording: "3 found, 2 unsure in 84 paragraphs checked"; "Nothing found in 84 paragraphs checked" (after "Matched by title." on a found row); "61 of 84 checked. Retry"; "Code not checked" where present. Never "no matches".
 
 7. **V1 MUST**
@@ -68,7 +75,7 @@ Each is a `beam-eval` subcommand; Swift 5 language mode.
 6. Honesty: a flag fails 30% of requests: exactly those dim or read "not checked"; "Nothing found" never appears.
 7. Extraction: 40 saved pages: 32+ keep 90% of reference paragraphs; paywalls show the fallback; miss rate published.
 8. Framing and ceiling: risk 1's eval passes; multi-question answers equal solo answers; a $0.01 ceiling stops requests.
-9. Native: under 250 MB with 50,000 items; one TextKit 1 NSTextView reader; iconutil icon, About panel, no New Window or tab items, minimum window size, sidebar auto-collapse, dark-mode yellow; bundle re-signed after assembly; dev builds read `BEAM_KEY`.
+9. Native: under 250 MB with 50,000 items; one TextKit 1 NSTextView reader; iconutil icon, About panel, no New Window or tab items, minimum window size, sidebar auto-collapse, adaptive light/dark highlight palettes; bundle re-signed after assembly; dev builds read `BEAM_KEY`.
 
 8. **V1 CUT**
 

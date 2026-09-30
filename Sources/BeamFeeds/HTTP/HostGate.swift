@@ -105,6 +105,7 @@ public actor HostGate {
     private static func seconds(from header: String, now: Date) -> TimeInterval? {
         let value = header.trimmingCharacters(in: .whitespaces)
         if let number = TimeInterval(value) {
+            guard number.isFinite else { return nil }
             let isUnixTime = number > 1_000_000_000
             return max(0, isUnixTime ? number - now.timeIntervalSince1970 : number)
         }

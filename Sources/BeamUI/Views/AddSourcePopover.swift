@@ -35,6 +35,8 @@ struct AddSourcePopover: View {
             Text(status)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .help(status)
                 .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -110,9 +112,7 @@ struct AddSourcePopover: View {
             switch await model.backend.addSource(candidate) {
             case .added: status = "Added"
             case .alreadyAdded: status = "Already added"
-            // The four lines of DESIGN.md section 6 are all this panel says: a backend reason is for the log,
-            // never for the one secondary line under the field.
-            case .failed: status = "No feed found at this address"
+            case .failed(let reason): status = reason.isEmpty ? "Couldn't add this source. Try again." : "Couldn't add this source: \(reason)"
             }
         }
     }

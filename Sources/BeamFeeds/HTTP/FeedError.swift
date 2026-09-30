@@ -20,8 +20,9 @@ public enum FeedError: Error, Hashable, Sendable {
         case .timedOut: return "the server took too long to answer"
         case .http(let status) where status == 404 || status == 410: return "the feed is gone (HTTP \(status))"
         case .http(let status): return "the server answered HTTP \(status)"
-        case .rateLimited(let retryAfter?): return "the server asked Beam to wait \(Int(retryAfter.rounded(.up))) s"
-        case .rateLimited(nil): return "the server asked Beam to slow down"
+        case .rateLimited(let retryAfter?) where retryAfter.isFinite && retryAfter >= 0 && retryAfter.rounded(.up) < Double(Int.max):
+            return "the server asked Beam to wait \(Int(retryAfter.rounded(.up))) s"
+        case .rateLimited: return "the server asked Beam to slow down"
         case .notAFeed: return "the address doesn't return a feed"
         case .network(let message): return message
         }

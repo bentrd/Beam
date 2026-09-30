@@ -41,7 +41,10 @@ public final class Engine: BeamBackend {
     var pinsHaveUnchecked = false
     var launchTask: Task<Void, Never>?
     var pinTimer: Task<Void, Never>?
+    var pinRefreshTask: Task<Void, Never>?
+    var pinRefreshEpoch = 0
     var wakeObserver: (any NSObjectProtocol)?
+    private var keyMutationEpoch = 0
 
     private var prejudgesTopResultsStorage = false
     public var prejudgesTopResults: Bool {
@@ -83,7 +86,11 @@ public final class Engine: BeamBackend {
 
         // Optimistic: a key that is there is assumed to work until something Beam actually needed to send is
         // refused, so a launch costs nothing and the first search does not wait on a round trip.
-        context.keyStatus = keyProvider.key() == nil ? .missing : .valid
+        do {
+            context.keyStatus = try keyProvider.readKey() == nil ? .missing : .valid
+        } catch {
+            context.keyStatus = Self.storageFailure(error)
+        }
         lists.onSettled = { [weak self] run in self?.listSettled(run) }
         launchTask = Task { [weak self] in await self?.launch() }
     }
@@ -120,21 +127,44 @@ public final class Engine: BeamBackend {
     /// The key sheet and Settings. An empty key removes the stored one; anything else is checked with one
     /// constant-string request that carries nothing of the user's before it is stored.
     public func setKey(_ key: String?) async -> KeyStatus {
+        keyMutationEpoch += 1
+        let epoch = keyMutationEpoch
         let typed = (key ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else {
-            do { try environment.keyProvider.remove() } catch { EngineLog.failure("removing the key", error) }
-            context.keyStatus = .missing
-            lists.reload()
-            return .missing
+            do {
+                try environment.keyProvider.remove()
+            } catch {
+                return Self.storageFailure(error)
+            }
+            context.keyStatus = environment.keyProvider.key() == nil ? .missing : .valid
+            credentialsChanged()
+            return context.keyStatus
         }
         let status = await context.judge.validate(key: typed)
-        if status == .valid {
-            do { try environment.keyProvider.set(typed) } catch { EngineLog.failure("storing the key", error) }
+        // A slower validation must never reconnect an account after a later Disconnect or replacement.
+        guard epoch == keyMutationEpoch, !Task.isCancelled else { return .unreachable }
+        guard status == .valid else { return status }
+        do {
+            try environment.keyProvider.set(typed)
+        } catch {
+            return Self.storageFailure(error)
         }
-        context.keyStatus = status
-        // "On success the sheet closes and the waiting sentence runs."
-        if status == .valid { lists.retry() }
-        return status
+        context.keyStatus = .valid
+        credentialsChanged()
+        Task { [weak self] in await self?.refreshPins() }
+        return .valid
+    }
+
+    private func credentialsChanged() {
+        prejudge.cancel()
+        cancelPinRefresh()
+        lists.keyChanged()
+        reader.keyChanged()
+    }
+
+    private static func storageFailure(_ error: Error) -> KeyStatus {
+        // Security.framework messages never contain the credential; arbitrary storage errors are not displayed.
+        .storageError((error as? KeychainError)?.localizedDescription ?? "Your TypeSafe key could not be accessed in Keychain.")
     }
 
     public func dollarsToday() async -> Double {

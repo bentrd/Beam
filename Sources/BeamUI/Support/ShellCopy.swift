@@ -23,10 +23,24 @@ enum ShellCopy {
     static let disclosure = "To judge meaning, Beam sends your sentences, your sources' titles and snippets, and paragraphs of articles you open, to TypeSafe with your key."
     static let disclosureWithTopThree = "To judge meaning, Beam sends your sentences, your sources' titles and snippets, and paragraphs of articles you open or that rank in the top three, to TypeSafe with your key."
     static let retentionLink = "How TypeSafe keeps data"
-    static let getKeyLink = "Get a key"
-    static let checkingKey = "Checking…"
-    static let keyRejected = "TypeSafe rejected this key"
+    static let getKeyLink = "Sign in to TypeSafe and create a key"
+    static let checkingKey = "Checking your key…"
+    static let keyRejected = "TypeSafe rejected this key. Create a new API key and try again."
     static let keyUnreachable = "Can't reach TypeSafe. Check your connection."
+    static let welcomeIntroduction = "Beam brings your feeds and articles into one quiet reader. Describe what you want to read, then open articles with matching paragraphs highlighted."
+    static let connectionInstructions = "Connect with an API key from your TypeSafe account to use Jev for search by meaning. Sign in or create an account, create a key, then paste it below."
+    static let plainReader = "You can read and follow sources without connecting. Add a key later in Beam Settings."
+    static let keyStorage = "Keys you connect here are stored securely in your macOS Keychain. Usage is billed to your TypeSafe account; Beam stops at $0.50 a day."
+
+    static func connectionStatus(_ status: KeyStatus) -> String {
+        switch status {
+        case .valid: return "Connected to TypeSafe."
+        case .missing: return "Not connected. Beam works as a plain reader."
+        case .rejected: return keyRejected
+        case .unreachable: return keyUnreachable
+        case .storageError(let message): return "Can't access your Keychain. \(message)"
+        }
+    }
 
     static func couldNotRefresh(_ reason: String) -> String { "Couldn't refresh: \(reason)" }
 
@@ -53,5 +67,5 @@ enum ShellCopy {
 /// Where the sheet's and Settings' two links lead.
 enum ShellLinks {
     static let dataRetention = URL(string: "https://typesafe.ai/legal/privacy-policy")
-    static let getKey = URL(string: "https://console.typesafe.ai/")
+    static let getKey = URL(string: "https://console.typesafe.ai/keys")
 }

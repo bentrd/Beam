@@ -32,7 +32,11 @@ extension AppModel {
 
     private func receive(_ snapshot: ListSnapshot) {
         apply(streaming.receive(snapshot))
-        if !snapshot.isRunning { didSettle(snapshot) }
+        if !snapshot.isRunning {
+            // A retry or background pin pass can discover a revoked key after this list first settled.
+            Task { [weak self] in await self?.refreshConnectionStatus() }
+            didSettle(snapshot)
+        }
     }
 
     private func apply(_ change: ListStreaming.Change) {

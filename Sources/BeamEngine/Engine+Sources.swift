@@ -127,6 +127,9 @@ extension Engine {
     /// ⌘R: fetch everything, then retry whatever was left not checked.
     public func refresh() async {
         await fetch(context.sources)
+        // A 304 or unchanged feed can still have missing pin answers after an offline run or a keyless launch.
+        // Cache hits make this free when the library is already checked.
+        await refreshPins()
         lists.retry()
         reader.retry()
     }
@@ -135,7 +138,7 @@ extension Engine {
     /// must not stop the others, and the sidebar and the foot are where a failure shows.
     func fetch(_ sources: [Source]) async {
         guard !sources.isEmpty else { return }
-        context.isRefreshing = true
+        context.feedRefreshesInFlight += 1
         lists.reload()
         publishSidebar()
         var changed: [Int64] = []
@@ -163,7 +166,7 @@ extension Engine {
             if arrived { lists.reload() }
         }
 
-        context.isRefreshing = false
+        context.feedRefreshesInFlight -= 1
         await reloadUnread()
         lists.reload()
         await judgeForPins(itemIDs: changed)
