@@ -49,7 +49,8 @@ fi
 
 echo "assembling…"
 mkdir -p "$ROOT/build"
-STAGING="$(mktemp -d "$ROOT/build/.Beam.XXXXXX")"
+# Assemble outside Documents/File Provider, which can reattach Finder metadata while signing.
+STAGING="$(mktemp -d "${TMPDIR:-/tmp}/beam-app.XXXXXX")"
 trap 'rm -rf "$STAGING"' EXIT
 BUNDLE="$STAGING/$NAME.app"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
