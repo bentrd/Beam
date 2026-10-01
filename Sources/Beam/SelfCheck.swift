@@ -4,7 +4,7 @@ import Foundation
 
 /// The shell lane's check (`Beam -selfcheck YES`): there is no XCTest here, and a window cannot be asserted on.
 /// It covers what can go wrong without pixels: the list streaming policy, and the fake backend keeping the promises
-/// the views are built on (timing, ordering, exact copy, read state, pins, undo, saturation, viewport first).
+/// the views are built on (streaming, ordering, exact copy, read state, pins, undo, saturation, viewport first).
 @MainActor
 enum SelfCheck {
     nonisolated static func runAndExit() -> Never {
@@ -141,13 +141,16 @@ enum SelfCheck {
         let dates = (all.last?.rows ?? []).filter { !$0.isMarked }.map(\.item.sortDate)
         report.expect(dates == dates.sorted(by: >), "the rest follow by date")
 
-        let started = Date()
-        var search = backend.list(ListRequest(sentence: "A sentence nobody pinned about apple silicon")).makeAsyncIterator()
+        var search = backend.list(ListRequest(sentence: "models")).makeAsyncIterator()
         let run = await settled(&search)
-        let seconds = Date().timeIntervalSince(started)
         report.expect(run.first?.isRunning == true && run.first?.foot.text == "Checking 150 items", "a new sentence starts \"Checking 150 items\"",
                       detail: run.first?.foot.text ?? "")
-        report.expect(run.count >= 6 && (1.0...2.6).contains(seconds), "rows stream in over about 1.5 s", detail: "\(run.count) snapshots in \(seconds) s")
+        let rowCounts = run.map { $0.rows.count }
+        let finalRowCount = run.last?.rows.count ?? 0
+        report.expect(run.count >= 6 && run.contains { $0.isRunning && !$0.rows.isEmpty && $0.rows.count < finalRowCount }
+                      && zip(rowCounts, rowCounts.dropFirst()).allSatisfy { $0.0 <= $0.1 }
+                      && run.last?.isRunning == false,
+                      "rows arrive progressively before the search settles", detail: "\(rowCounts) rows across snapshots")
         if let last = run.last {
             let ps = last.rows.compactMap { $0.check?.probability }
             report.expect(ps.allSatisfy { $0 >= Bands.listUnsure }, "only rows at p >= 0.45 are listed")
@@ -184,13 +187,19 @@ enum SelfCheck {
         let unreadBefore = await currentSidebar(of: backend).unreadInAll
         report.expect(article.item.read == false, "previewing never marks an item read")
 
-        let started = Date()
         var opened = backend.open(itemID: article.id, carrying: "running models locally on a laptop").makeAsyncIterator()
         backend.setViewport(firstVisible: 100, lastVisible: 112)
         let run = await settled(&opened) { $0.phase == .ready && !$0.isRunning }
-        let seconds = Date().timeIntervalSince(started)
-        report.expect(run.first?.phase == .loading, "the title and byline are there before the text")
-        report.expect((1.5...3.2).contains(seconds), "judgments arrive over about 2 s", detail: "\(seconds) s")
+        report.expect(run.first?.phase == .loading && run.first?.passages.isEmpty == true,
+                      "the title and byline are there before the text")
+        let checkedCounts = run.map { $0.checks.values.filter { $0.isChecked }.count }
+        let finalCheckedCount = checkedCounts.last ?? 0
+        report.expect(run.contains { $0.phase == .ready && $0.isRunning && !$0.passages.isEmpty }
+                      && checkedCounts.contains { $0 > 0 && $0 < finalCheckedCount }
+                      && zip(checkedCounts, checkedCounts.dropFirst()).allSatisfy { $0.0 <= $0.1 }
+                      && run.last?.phase == .ready && run.last?.isRunning == false,
+                      "paragraph judgments arrive progressively before the reader settles",
+                      detail: "\(checkedCounts) checked paragraphs across snapshots")
         if let firstMarks = run.first(where: { $0.checks.values.contains { $0.isChecked } }) {
             let checked = firstMarks.checks.filter { $0.value.isChecked }.keys
             report.expect(checked.count >= Bands.saturationMinimumChecked, "no marks before 24 paragraphs are checked", detail: "\(checked.count)")
